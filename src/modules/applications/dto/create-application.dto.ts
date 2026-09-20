@@ -1,3 +1,5 @@
+// DTO pengiriman lamaran.
+
 import {
   IsString,
   IsNotEmpty,

@@ -1,3 +1,5 @@
+// Klien Prisma beserta daur hidup koneksinya.
+
 import {
   Injectable,
   OnModuleInit,
@@ -16,9 +18,6 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
-    // Pakai pg Pool eksplisit supaya bisa set connection pool params.
-    // Ini mencegah error P1001 "Can't reach database" saat Supabase pooler
-    // sedang busy atau koneksi idle terlalu lama.
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 10,
@@ -32,7 +31,6 @@ export class PrismaService
   }
 
   async onModuleInit() {
-    // Retry connect sampai 3x kalau Supabase pooler sedang sibuk
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {

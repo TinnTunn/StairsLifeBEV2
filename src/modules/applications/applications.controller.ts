@@ -1,3 +1,5 @@
+// Endpoint lamaran.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -22,7 +24,6 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
 
-  // POST /api/v1/applications — mahasiswa melamar
   @Post()
   @UseGuards(RolesGuard)
   @Roles('mahasiswa')
@@ -30,7 +31,6 @@ export class ApplicationsController {
     return this.applicationsService.applyToProject(dto, user.id);
   }
 
-  // GET /api/v1/applications/my — mahasiswa lihat lamaran sendiri
   @Get('my')
   @UseGuards(RolesGuard)
   @Roles('mahasiswa')
@@ -38,7 +38,6 @@ export class ApplicationsController {
     return this.applicationsService.getMyApplications(user.id);
   }
 
-  // GET /api/v1/applications/project/:projectId — bisnis lihat lamaran masuk
   @Get('project/:projectId')
   @UseGuards(RolesGuard)
   @Roles('bisnis')
@@ -49,13 +48,11 @@ export class ApplicationsController {
     return this.applicationsService.getProjectApplications(projectId, user.id);
   }
 
-  // GET /api/v1/applications/:id — detail lamaran (mahasiswa atau bisnis pemilik project)
   @Get(':id')
   async getById(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.applicationsService.getApplicationById(id, user.id);
   }
 
-  // PATCH /api/v1/applications/:id/status — bisnis approve/reject
   @Patch(':id/status')
   @UseGuards(RolesGuard)
   @Roles('bisnis')
@@ -67,8 +64,6 @@ export class ApplicationsController {
     return this.applicationsService.updateApplicationStatus(id, dto, user.id);
   }
 
-  // DELETE /api/v1/applications/:id — mahasiswa batalkan lamaran sendiri
-  // (hanya kalau masih pending / shortlisted).
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles('mahasiswa')

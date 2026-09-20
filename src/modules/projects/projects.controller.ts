@@ -1,3 +1,5 @@
+// Endpoint proyek.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -23,13 +25,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
-  // GET /api/v1/projects — public
   @Get()
   async getAll(@Query() filter: FilterProjectDto) {
     return this.projectsService.getAllProjects(filter);
   }
 
-  // GET /api/v1/projects/my — bisnis lihat project sendiri
   @Get('my')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('bisnis')
@@ -37,13 +37,11 @@ export class ProjectsController {
     return this.projectsService.getMyProjects(user.id);
   }
 
-  // GET /api/v1/projects/:id — public
   @Get(':id')
   async getById(@Param('id') id: string) {
     return this.projectsService.getProjectById(id);
   }
 
-  // POST /api/v1/projects — bisnis only
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('bisnis')
@@ -51,7 +49,6 @@ export class ProjectsController {
     return this.projectsService.createProject(dto, user.id);
   }
 
-  // PATCH /api/v1/projects/:id — bisnis only
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('bisnis')
@@ -63,7 +60,6 @@ export class ProjectsController {
     return this.projectsService.updateProject(id, dto, user.id);
   }
 
-  // DELETE /api/v1/projects/:id — bisnis only
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('bisnis')

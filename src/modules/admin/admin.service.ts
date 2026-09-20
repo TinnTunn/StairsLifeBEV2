@@ -1,3 +1,5 @@
+// Logika panel admin: statistik, pengguna, verifikasi, dan pengaturan.
+
 import {
   Injectable,
   NotFoundException,
@@ -20,9 +22,6 @@ export class AdminService {
     private notificationsService: NotificationsService,
   ) {}
 
-  // ═══════════════════════════════
-  // STATS
-  // ═══════════════════════════════
   async getStats() {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
@@ -42,21 +41,18 @@ export class AdminService {
       this.prisma.disputes.count({ where: { status: 'open' } }),
     ]);
 
-    // Tren project baru 30 hari
     const recentProjects = await this.prisma.projects.findMany({
       where: { created_at: { gte: thirtyDaysAgo } },
       select: { created_at: true },
       orderBy: { created_at: 'asc' },
     });
 
-    // Tren registrasi 30 hari
     const recentUsers = await this.prisma.users.findMany({
       where: { created_at: { gte: thirtyDaysAgo } },
       select: { created_at: true },
       orderBy: { created_at: 'asc' },
     });
 
-    // Build 30-day map
     const now = new Date();
     const projectMap: Record<string, number> = {};
     const regMap: Record<string, number> = {};
@@ -104,9 +100,6 @@ export class AdminService {
     };
   }
 
-  // ═══════════════════════════════
-  // USERS
-  // ═══════════════════════════════
   async getAllUsers(role?: string) {
     const users = await this.prisma.users.findMany({
       where: role ? { role: role as any } : undefined,
@@ -120,7 +113,6 @@ export class AdminService {
         is_suspended: true,
         suspension_reason: true,
         created_at: true,
-        // Profil untuk tampilan admin (foto + konteks)
         avatar_url: true,
         university: true,
         major: true,
@@ -132,10 +124,6 @@ export class AdminService {
     return { data: users, message: 'Berhasil' };
   }
 
-  /**
-   * Pencarian dan paginasi di server. Dulu panel admin memuat seluruh
-   * pengguna per peran lalu menyaring di browser.
-   */
   async cariUsers(args: {
     role?: string;
     q?: string;
@@ -146,9 +134,11 @@ export class AdminService {
     const where: Record<string, unknown> = {};
     const dan: Record<string, unknown>[] = [];
     if (args.role) where.role = args.role;
-    if (args.status === 'aktif') dan.push({ OR: [{ is_suspended: false }, { is_suspended: null }] });
+    if (args.status === 'aktif')
+      dan.push({ OR: [{ is_suspended: false }, { is_suspended: null }] });
     if (args.status === 'dibekukan') dan.push({ is_suspended: true });
-    if (args.status === 'belumVerifikasi') dan.push({ OR: [{ is_verified: false }, { is_verified: null }] });
+    if (args.status === 'belumVerifikasi')
+      dan.push({ OR: [{ is_verified: false }, { is_verified: null }] });
     const q = args.q?.trim();
     if (q) {
       dan.push({
@@ -157,9 +147,6 @@ export class AdminService {
         })),
       });
     }
-    // Akun yang dihapus penggunanya tidak ditampilkan sebagai akun beku.
-    // Bukan NOT { suspension_reason }: di SQL, NOT (kolom = x) bernilai NULL
-    // untuk baris yang kolomnya NULL, sehingga semua akun aktif ikut terbuang.
     dan.push({
       OR: [
         { suspension_reason: null },
@@ -205,7 +192,8 @@ export class AdminService {
     if (!user) throw new NotFoundException('User tidak ditemukan');
     if (user.suspension_reason === 'account_deleted') {
       throw new BadRequestException({
-        message: 'Akun ini sudah dihapus pemiliknya dan tidak bisa diaktifkan lagi',
+        message:
+          'Akun ini sudah dihapus pemiliknya dan tidak bisa diaktifkan lagi',
         code: 'ACCOUNT_DELETED',
       });
     }
@@ -229,8 +217,6 @@ export class AdminService {
       },
     });
 
-    // Pembekuan harus berlaku sekarang, bukan saat refresh token kedaluwarsa
-    // 30 hari lagi: semua sesi pengguna dicabut.
     if (updated.is_suspended) {
       await this.prisma.verification_tokens.updateMany({
         where: { user_id: userId, type: 'refresh_session', used_at: null },
@@ -238,7 +224,6 @@ export class AdminService {
       });
     }
 
-    // Notif ke user yang ter-affected
     void this.notificationsService.create({
       user_id: userId,
       type: 'system',
@@ -264,9 +249,6 @@ export class AdminService {
     });
     if (!project) throw new NotFoundException('Project tidak ditemukan');
 
-    // Project yang sudah punya kontrak = ada engagement + (mungkin) pembayaran.
-    // Hard-delete akan melanggar FK kontrak (onDelete: NoAction) & menghapus
-    // riwayat. Tolak — minta admin selesaikan/batalkan kontraknya dulu.
     const contractCount = await this.prisma.contracts.count({
       where: { project_id: projectId },
     });
@@ -276,14 +258,10 @@ export class AdminService {
       );
     }
 
-    // Aman dihapus: lamaran (applications) ber-onDelete Cascade ikut terhapus.
     await this.prisma.projects.delete({ where: { id: projectId } });
     return { data: { id: projectId }, message: 'Project berhasil dihapus' };
   }
 
-  // ═══════════════════════════════
-  // VERIFICATIONS
-  // ═══════════════════════════════
   async getPendingVerifications(status: string = 'pending') {
     const verifications = await this.prisma.verifications.findMany({
       where: { status: status as any },
@@ -331,7 +309,6 @@ export class AdminService {
       });
     }
 
-    // Notif ke mahasiswa
     void this.notificationsService.create({
       user_id: verification.user_id,
       type: 'verification',
@@ -356,9 +333,6 @@ export class AdminService {
     };
   }
 
-  // ═══════════════════════════════
-  // DISPUTES
-  // ═══════════════════════════════
   async getAllDisputes(status?: string) {
     const disputes = await this.prisma.disputes.findMany({
       where: status ? { status } : undefined,
@@ -384,7 +358,6 @@ export class AdminService {
     return { data: disputes, message: 'Berhasil' };
   }
 
-  /** Detail satu sengketa, termasuk pembayaran escrow kontraknya. */
   async getDisputeById(id: string) {
     const dispute = await this.prisma.disputes.findUnique({
       where: { id },
@@ -418,22 +391,6 @@ export class AdminService {
     return { data: dispute, message: 'Berhasil' };
   }
 
-  /**
-   * Resolve dispute — termasuk efek finansial pada escrow.
-   *
-   * Outcome menentukan kemana dana escrow disalurkan:
-   *   - favor_business: refund 100% net amount ke bisnis
-   *   - favor_student : release 100% net amount ke mahasiswa
-   *   - split         : bagi sesuai student_share_percent (0..100)
-   *   - no_action     : tidak ubah payment (admin tutup tanpa eskalasi finansial)
-   *
-   * Semua perubahan (dispute + payment + contract status) dilakukan
-   * dalam Prisma $transaction supaya atomic — kalau salah satu gagal,
-   * tidak ada partial state.
-   *
-   * Idempotent: kalau dispute sudah resolved sebelumnya, throw 400
-   * (admin tidak boleh resolve dua kali — bisa double-release dana).
-   */
   async resolveDispute(
     disputeId: string,
     dto: ResolveDisputeDto,
@@ -452,7 +409,6 @@ export class AdminService {
     });
     if (!dispute) throw new NotFoundException('Dispute tidak ditemukan');
 
-    // Guard: dispute sudah resolved sebelumnya — tolak, hindari double-payout.
     if (dispute.status === 'resolved') {
       throw new BadRequestException(
         'Dispute sudah pernah di-resolve. Tidak bisa di-resolve ulang.',
@@ -460,10 +416,8 @@ export class AdminService {
     }
 
     const contract = dispute.contracts;
-    // Payment bisa null kalau dispute dibuka sebelum bisnis bayar — itu valid.
     const payment = contract?.payments?.[0] ?? null;
 
-    // ── Untuk status non-resolved, cukup update field, tanpa efek finansial.
     if (dto.status !== DisputeStatus.RESOLVED) {
       const updated = await this.prisma.disputes.update({
         where: { id: disputeId },
@@ -480,7 +434,6 @@ export class AdminService {
       return { data: updated, message: 'Status dispute berhasil diperbarui' };
     }
 
-    // ── Status === RESOLVED: outcome wajib diisi.
     const outcome = dto.outcome;
     if (!outcome) {
       throw new BadRequestException(
@@ -488,7 +441,6 @@ export class AdminService {
       );
     }
 
-    // Kalau outcome melibatkan finansial tapi payment belum ada, tolak.
     const needsPayment =
       outcome === DisputeOutcome.FAVOR_BUSINESS ||
       outcome === DisputeOutcome.FAVOR_STUDENT ||
@@ -500,15 +452,12 @@ export class AdminService {
       );
     }
 
-    // Kalau payment sudah released/refunded sebelumnya, tolak — admin
-    // tidak boleh ulangi efek finansial.
     if (needsPayment && payment && payment.status !== 'held') {
       throw new BadRequestException(
         `Payment sudah dalam status "${payment.status}", tidak bisa diubah lagi oleh dispute resolution.`,
       );
     }
 
-    // Validasi outcome === SPLIT: student_share_percent wajib & valid.
     let studentShare = 0;
     let businessShare = 0;
     if (outcome === DisputeOutcome.SPLIT) {
@@ -523,7 +472,6 @@ export class AdminService {
           'student_share_percent harus angka 0..100',
         );
       }
-      // Hitung dari net (bukan gross): platform fee tetap dipotong.
       const net = payment.net_amount;
       studentShare = Math.round((net * pct) / 100);
       businessShare = net - studentShare;
@@ -535,19 +483,15 @@ export class AdminService {
       businessShare = payment.net_amount;
     }
 
-    // Status baru untuk payment.
     let newPaymentStatus: string | null = null;
     if (outcome === DisputeOutcome.FAVOR_BUSINESS) {
       newPaymentStatus = 'refunded';
     } else if (outcome === DisputeOutcome.FAVOR_STUDENT) {
       newPaymentStatus = 'released';
     } else if (outcome === DisputeOutcome.SPLIT) {
-      // Status khusus supaya jelas ini hasil dispute, bukan release normal.
       newPaymentStatus = 'split_settled';
     }
-    // NO_ACTION → newPaymentStatus tetap null (tidak ubah payment).
 
-    // ── Atomic update: dispute + payment + contract (kalau perlu).
     const now = new Date();
     const updated = await this.prisma.$transaction(async (tx) => {
       const updatedDispute = await tx.disputes.update({
@@ -564,8 +508,6 @@ export class AdminService {
         await tx.payments.update({
           where: { id: payment.id },
           data: {
-            // Cast ke any karena enum baru ditambah via SQL migration.
-            // Setelah `npx prisma generate` jalan, type-nya bersih.
             status: newPaymentStatus as any,
             released_at:
               newPaymentStatus === 'released' ||
@@ -580,9 +522,6 @@ export class AdminService {
           },
         });
 
-        // Update wallet mahasiswa kalau ada porsi yang masuk ke dia.
-        // Ini PENTING: sebelumnya cuma update payments.status, wallet tidak
-        // ter-update sehingga mahasiswa tidak dapat saldo dari dispute split.
         if (studentShare > 0) {
           const wallet = await tx.wallets.upsert({
             where: { user_id: contract.student_id },
@@ -614,8 +553,6 @@ export class AdminService {
         }
       }
 
-      // Kalau favor_business atau split full ke bisnis → kontrak cancelled.
-      // Kalau favor_student atau split parsial ke mhs → kontrak completed.
       if (contract && newPaymentStatus) {
         let newContractStatus: string | null = null;
         if (outcome === DisputeOutcome.FAVOR_BUSINESS) {
@@ -652,9 +589,6 @@ export class AdminService {
     };
   }
 
-  /**
-   * Notif ke kedua pihak untuk dispute yang belum resolved (under_review / rejected).
-   */
   private _notifyDisputeUpdate(
     dispute: any,
     status: DisputeStatus,
@@ -686,9 +620,6 @@ export class AdminService {
     );
   }
 
-  /**
-   * Notif terpisah ke mahasiswa & bisnis dengan detail efek finansial.
-   */
   private _notifyDisputeResolved(
     dispute: any,
     outcome: DisputeOutcome,
@@ -745,9 +676,6 @@ export class AdminService {
     });
   }
 
-  // ═══════════════════════════════
-  // PROJECTS
-  // ═══════════════════════════════
   async getAllProjects(status?: string) {
     const projects = await this.prisma.projects.findMany({
       where: status ? { status: status as any } : undefined,
@@ -775,14 +703,7 @@ export class AdminService {
     return { data: contracts, message: 'Berhasil' };
   }
 
-  // ═══════════════════════════════
-  // ANNOUNCEMENTS
-  // ═══════════════════════════════
   async sendAnnouncement(dto: SendAnnouncementDto, adminId: string) {
-    // IDEMPOTENCY GUARD: cegah duplicate announcement dari admin yang sama
-    // dengan title + body + target identik dalam 10 detik terakhir.
-    // Penting karena setiap announcement melakukan fan-out notifikasi ke
-    // semua user — double-click → 2x notifikasi ke ribuan user.
     const tenSecondsAgo = new Date(Date.now() - 10_000);
     const duplicate = await this.prisma.announcements.findFirst({
       where: {
@@ -810,15 +731,12 @@ export class AdminService {
       },
     });
 
-    // Fan-out announcement ke semua user yang relevan via notifikasi.
-    // target enum: ALL ('all'), STUDENT ('student'), BUSINESS ('bisnis').
     try {
       const whereTarget: any = { is_suspended: false };
       const t = String(dto.target).toLowerCase();
       if (t === 'student' || t === 'mahasiswa') whereTarget.role = 'mahasiswa';
       else if (t === 'bisnis' || t === 'business') whereTarget.role = 'bisnis';
       else {
-        // 'all' → semua mahasiswa + bisnis (exclude admin)
         whereTarget.role = { in: ['mahasiswa', 'bisnis'] as any };
       }
 
@@ -827,7 +745,6 @@ export class AdminService {
         select: { id: true },
       });
 
-      // Fire-and-forget — pengumuman ke 1000+ user tidak boleh nahan response
       void this.notificationsService.createBulk(
         targetUsers.map((u) => u.id),
         {
@@ -839,7 +756,6 @@ export class AdminService {
         },
       );
     } catch (e) {
-      // Tidak fatal — announcement tetap tersimpan di DB
       console.warn('[announcement] fan-out gagal:', (e as Error).message);
     }
 
@@ -853,9 +769,6 @@ export class AdminService {
     return { data: announcements, message: 'Berhasil' };
   }
 
-  // ═══════════════════════════════
-  // FINANCES
-  // ═══════════════════════════════
   async getFinances() {
     const now = new Date();
     const todayStart = new Date(now);
@@ -968,9 +881,6 @@ export class AdminService {
     };
   }
 
-  // ═══════════════════════════════
-  // SETTINGS
-  // ═══════════════════════════════
   async getSettings() {
     const settings = await this.prisma.platform_settings.findMany();
     const data: Record<string, any> = {};
@@ -1024,10 +934,6 @@ export class AdminService {
 
     await Promise.all(updates);
 
-    // Return fresh data dari DB (bukan dari payload) supaya
-    // frontend selalu dapat nilai yang benar-benar tersimpan.
-    // PaymentsService._getPlatformFeePercent() membaca DB
-    // langsung per-call, jadi tidak ada cache yang perlu di-invalidate.
     return this.getSettings();
   }
 }

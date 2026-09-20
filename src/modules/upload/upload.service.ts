@@ -1,3 +1,5 @@
+// Logika unggah berkas ke penyimpanan Supabase.
+
 import {
   Injectable,
   BadRequestException,
@@ -30,8 +32,6 @@ export class UploadService {
     );
   }
 
-  // ─── Upload ke Supabase Storage ───────────────────────────────
-
   async uploadFile(
     file: Express.Multer.File,
     type: UploadType,
@@ -52,18 +52,13 @@ export class UploadService {
       );
     }
 
-    // Public bucket → return public URL langsung
     if (bucket === this.PUBLIC_BUCKET) {
       const { data } = this.supabase.storage.from(bucket).getPublicUrl(path);
       return data.publicUrl;
     }
 
-    // Private bucket → simpan path ke DB,
-    // tampilkan via getSignedUrl() saat dibutuhkan
     return path;
   }
-
-  // ─── Signed URL untuk private files ──────────────────────────
 
   async getSignedUrl(
     path: string,
@@ -71,8 +66,6 @@ export class UploadService {
     requesterRole: string,
     expiresInSeconds = 3600,
   ): Promise<string> {
-    // Validasi bentuk path DULU (cegah traversal ../ & path aneh yang bisa
-    // mem-bypass cek owner di authorizeSignedUrlAccess).
     this.validatePathFormat(path);
     await this.authorizeSignedUrlAccess(path, requesterId, requesterRole);
 
@@ -85,9 +78,6 @@ export class UploadService {
     const { data, error } = await this.supabase.storage
       .from(bucket)
       .createSignedUrl(path, expiresInSeconds, {
-        // Paksa download untuk deliverable/evidence: tipe yang diizinkan
-        // termasuk SVG yang bisa XSS kalau di-render inline di tab. ktm/selfie
-        // (bucket verifikasi, hanya jpeg/png/webp) tetap inline untuk preview.
         ...(isPrivateDeliverable ? { download: true } : {}),
       });
 
@@ -98,10 +88,6 @@ export class UploadService {
     return data.signedUrl;
   }
 
-  /**
-   * Validasi bentuk path: `folder/{uuid}/{filename}`. Folder hanya yang
-   * dikenal, dan filename satu segmen (tanpa '/') sehingga '../' mustahil.
-   */
   private validatePathFormat(path: string): void {
     const ok =
       /^(deliverables|ktm|selfie|evidence)\/[0-9a-fA-F-]{36}\/[A-Za-z0-9._-]+$/.test(
@@ -111,8 +97,6 @@ export class UploadService {
       throw new BadRequestException('Path file tidak valid.');
     }
   }
-
-  // ─── Cek authorization sebelum buat signed URL ────────────────
 
   private async authorizeSignedUrlAccess(
     path: string,
@@ -126,13 +110,8 @@ export class UploadService {
     const ownerId = segments[1]; // userId
 
     if (folder === 'deliverables') {
-      // Student pemilik file (uploader)
       if (requesterId === ownerId) return;
 
-      // Business: HANYA boleh kalau file ini benar-benar deliverable dari salah
-      // satu kontrak antara dia & student tsb. Sebelumnya cukup "pernah
-      // berkontrak dgn student ini" — itu membocorkan deliverable lintas-klien
-      // (bisnis A bisa lihat hasil kerja student utk bisnis B).
       const allowed = await this.isDeliverableForBusiness(
         path,
         ownerId,
@@ -142,47 +121,40 @@ export class UploadService {
         throw new ForbiddenException('Akses ditolak.');
       }
     } else if (folder === 'evidence') {
-      // Bukti sengketa: pengunggah, dan kedua pihak kontrak yang
-      // disengketakan. Pihak yang dituduh berhak melihat buktinya.
       if (requesterId === ownerId) return;
       if (!(await this.isEvidenceForParty(path, requesterId))) {
         throw new ForbiddenException('Akses ditolak.');
       }
     } else {
-      // ktm / selfie → hanya pemilik (admin sudah bypass di atas).
       if (requesterId !== ownerId) {
         throw new ForbiddenException('Akses ditolak.');
       }
     }
   }
 
-  /** True kalau `path` tercantum di bukti sengketa kontrak milik requester. */
-  private async isEvidenceForParty(path: string, requesterId: string): Promise<boolean> {
+  private async isEvidenceForParty(
+    path: string,
+    requesterId: string,
+  ): Promise<boolean> {
     const { data } = await this.supabase
       .from('disputes')
       .select('id, contracts:contracts!contract_id ( student_id, business_id )')
       .like('evidence_url', `%${path}%`)
       .limit(20);
-    type Pihak = { student_id?: string; business_id?: string };
     return (data ?? []).some((d) => {
-      const c = d.contracts as unknown as Pihak | Pihak[] | null;
+      const c = d.contracts as unknown;
       const daftar = Array.isArray(c) ? c : c ? [c] : [];
-      return daftar.some((k) => k.student_id === requesterId || k.business_id === requesterId);
+      return daftar.some(
+        (k) => k.student_id === requesterId || k.business_id === requesterId,
+      );
     });
   }
 
-  /**
-   * True kalau `path` adalah deliverable dari kontrak antara studentId &
-   * businessId. Dicocokkan via contracts.deliverable_url (deliverable terakhir,
-   * bisa path tunggal atau JSON array) ATAU riwayat contract_deliverables.
-   * Menutup kebocoran deliverable lintas-klien.
-   */
   private async isDeliverableForBusiness(
     path: string,
     studentId: string,
     businessId: string,
   ): Promise<boolean> {
-    // 1. Kontrak antara keduanya yang deliverable_url-nya mereferensikan path.
     const { data: c1 } = await this.supabase
       .from('contracts')
       .select('id')
@@ -192,8 +164,6 @@ export class UploadService {
       .limit(1);
     if (c1 && c1.length > 0) return true;
 
-    // 2. Riwayat: contract_deliverables yang mereferensikan path → pastikan
-    //    kontraknya milik business & student ini.
     const { data: hist } = await this.supabase
       .from('contract_deliverables')
       .select('contract_id')
@@ -211,8 +181,6 @@ export class UploadService {
     return !!(c2 && c2.length > 0);
   }
 
-  // ─── Resolve bucket & path berdasarkan type ───────────────────
-
   private resolvePath(
     type: UploadType,
     userId: string,
@@ -229,23 +197,16 @@ export class UploadService {
       },
       ktm: { bucket: this.PRIVATE_BUCKET, folder: `ktm/${userId}` },
       selfie: { bucket: this.PRIVATE_BUCKET, folder: `selfie/${userId}` },
-      // Bukti dispute — bucket privat, hanya pemilik & admin (mediator) yang
-      // bisa minta signed URL (lihat authorizeSignedUrlAccess: cabang else).
       evidence: {
         bucket: this.DELIVERABLE_BUCKET,
         folder: `evidence/${userId}`,
       },
-      // Gambar lampiran chat — public bucket supaya bisa di-render <img> langsung
-      // di bubble chat. URL disisipkan ke message.content sebagai markdown
-      // ![image](url). Bucket sama dgn avatar (public, free).
       'chat-image': { bucket: this.PUBLIC_BUCKET, folder: `chat/${userId}` },
     };
 
     const { bucket, folder } = routes[type];
     return { bucket, path: `${folder}/${unique}` };
   }
-
-  // ─── Helpers ──────────────────────────────────────────────────
 
   validateFile(file: Express.Multer.File | undefined): void {
     if (!file) {

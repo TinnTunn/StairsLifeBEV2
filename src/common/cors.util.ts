@@ -1,13 +1,5 @@
-/**
- * Bangun daftar origin yang diizinkan untuk CORS (REST + WebSocket).
- *
- * - FRONTEND_URL bisa berisi multiple origin dipisah koma.
- * - Di development, localhost:5173 (Vite default) selalu diizinkan
- *   walaupun tidak ada di FRONTEND_URL — supaya developer tidak terjebak.
- *
- * Di-share antara main.ts (REST) dan WebSocket gateways supaya
- * tidak ada drift konfigurasi.
- */
+// Penyusun daftar origin yang diizinkan, dipakai REST dan kedua gateway WebSocket.
+
 export function buildCorsOriginList(): string[] {
   const fromEnv = (process.env.FRONTEND_URL || '')
     .split(',')

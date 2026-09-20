@@ -1,3 +1,5 @@
+// DTO perubahan status lamaran.
+
 import { IsEnum, IsNotEmpty } from 'class-validator';
 
 export enum ApplicationStatus {

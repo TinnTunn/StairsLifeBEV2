@@ -1,3 +1,5 @@
+// DTO pengajuan sengketa.
+
 import {
   IsUUID,
   IsString,
@@ -15,7 +17,6 @@ export class CreateDisputeDto {
   @MinLength(20, { message: 'Reason minimal 20 karakter' })
   reason: string;
 
-  // URL bukti opsional (image/dokumen yang sudah di-upload via /upload).
   @IsOptional()
   @IsString()
   evidence_url?: string;

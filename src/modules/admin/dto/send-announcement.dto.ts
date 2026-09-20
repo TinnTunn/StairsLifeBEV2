@@ -1,3 +1,5 @@
+// DTO pengiriman pengumuman.
+
 import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
 
 export enum AnnouncementTarget {

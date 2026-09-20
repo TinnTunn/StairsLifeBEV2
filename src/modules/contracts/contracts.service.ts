@@ -1,3 +1,5 @@
+// Logika kontrak: pembuatan, hasil kerja, persetujuan, dan pelepasan dana.
+
 import {
   Injectable,
   NotFoundException,
@@ -44,10 +46,6 @@ export class ContractsService {
     if (application.status !== 'approved')
       throw new BadRequestException('Lamaran harus di-approve dulu');
 
-    // Idempotent: kalau kontrak untuk application_id ini SUDAH ADA, kembalikan
-    // yang ada — JANGAN error. Ini mencegah double-contract (klik 2x) sekaligus
-    // membuat alur bisa dilanjutkan: mis. kontrak sudah dibuat tapi pembayaran
-    // Xendit belum selesai → bisnis bisa "Bayar ulang" tanpa buntu.
     const existingContract = await this.prisma.contracts.findFirst({
       where: { application_id: dto.application_id },
     });
@@ -74,7 +72,6 @@ export class ContractsService {
       status: 'inProgress',
     });
 
-    // Notif ke mahasiswa: kontrak aktif, bisa mulai kerja
     void this.notificationsService.create({
       user_id: application.student_id,
       type: 'contract',
@@ -118,12 +115,6 @@ export class ContractsService {
     if (contract.status !== 'active')
       throw new BadRequestException('Kontrak tidak dalam status aktif');
 
-    // Normalise URLs: bisa dari single field atau array.
-    // - Kalau dto.deliverable_urls ada (array), pakai itu.
-    // - Kalau hanya dto.deliverable_url (string), wrap ke array.
-    // - Storage: simpan sebagai JSON string ["url1","url2"] di kolom TEXT.
-    //   Tidak perlu migration — kolom deliverable_url sudah TEXT.
-    //   Frontend tahu ini JSON kalau string-nya dimulai dengan '['
     const rawUrls: string[] = dto.deliverable_urls?.length
       ? dto.deliverable_urls
       : dto.deliverable_url
@@ -134,12 +125,9 @@ export class ContractsService {
       throw new BadRequestException('Minimal 1 file harus diupload');
     }
 
-    // Simpan sebagai JSON array kalau > 1 file, plain string kalau 1 file
-    // (backward compat dengan data lama yang simpan single URL).
     const storedUrl =
       rawUrls.length === 1 ? rawUrls[0] : JSON.stringify(rawUrls);
 
-    // Simpan ke history deliverables
     await this.prisma.contract_deliverables.create({
       data: {
         contract_id: id,
@@ -157,7 +145,6 @@ export class ContractsService {
       status: 'pending_review',
     });
 
-    // Notif ke bisnis: deliverable masuk, perlu di-review
     const project = await this.projectsRepository.findById(contract.project_id);
     void this.notificationsService.create({
       user_id: contract.business_id,
@@ -171,11 +158,10 @@ export class ContractsService {
     return { data: updated, message: 'Deliverable berhasil diupload' };
   }
 
-  /**
-   * Penjaga bersama approve dan reject: tidak ada sengketa berjalan, dan
-   * (bila frontend mengirimnya) hasil kerja yang menunggu review masih sama.
-   */
-  private async _pastikanBisaDireview(contractId: string, deliverableId?: string) {
+  private async _pastikanBisaDireview(
+    contractId: string,
+    deliverableId?: string,
+  ) {
     const sengketaAktif = await this.prisma.disputes.count({
       where: {
         contract_id: contractId,
@@ -196,14 +182,19 @@ export class ContractsService {
       });
       if (!terbaru || terbaru.id !== deliverableId) {
         throw new BadRequestException({
-          message: 'Hasil kerja sudah berubah. Muat ulang halaman lalu periksa lagi.',
+          message:
+            'Hasil kerja sudah berubah. Muat ulang halaman lalu periksa lagi.',
           code: 'DELIVERABLE_CHANGED',
         });
       }
     }
   }
 
-  async approveDeliverable(id: string, businessId: string, deliverableId?: string) {
+  async approveDeliverable(
+    id: string,
+    businessId: string,
+    deliverableId?: string,
+  ) {
     const contract = await this.contractsRepository.findById(id);
     if (!contract) throw new NotFoundException('Kontrak tidak ditemukan');
     if (contract.business_id !== businessId)
@@ -214,9 +205,6 @@ export class ContractsService {
       );
     await this._pastikanBisaDireview(id, deliverableId);
 
-    // Transisi atomik: hanya SATU pemanggil konkuren yang menang. Mencegah
-    // double-effect (total_projects ganda, tier ganda, escrow dirilis ganda)
-    // akibat klik-ganda / retry "Approve".
     const claimed = await this.prisma.contracts.updateMany({
       where: { id, status: 'pending_review' as any },
       data: {
@@ -232,7 +220,6 @@ export class ContractsService {
     }
     const updated = await this.contractsRepository.findById(id);
 
-    // Update history deliverable terakhir jadi approved
     await this.prisma.contract_deliverables.updateMany({
       where: { contract_id: id, status: 'pending' },
       data: {
@@ -246,15 +233,11 @@ export class ContractsService {
       status: 'completed',
     });
 
-    // Update student total_projects — ini SATU-SATUNYA tempat increment.
-    // (Sebelumnya juga di-increment di ReviewsService.create — sudah dihapus.)
     const updatedStudent = await this.prisma.users.update({
       where: { id: contract.student_id },
       data: { total_projects: { increment: 1 } },
     });
 
-    // Auto-upgrade tier berdasarkan total_projects + rating_avg.
-    // rating_avg adalah Decimal di schema → convert ke Number untuk perbandingan.
     const tierBefore = updatedStudent.tier ?? 'pemula';
     const tierAfter = await this._autoUpgradeTier(
       contract.student_id,
@@ -263,19 +246,11 @@ export class ContractsService {
       tierBefore,
     );
 
-    // Auto-release escrow payment kalau ada.
-    // Atomic: status payment 'held' → 'released' + wallet mahasiswa +
-    // wallet_transaction log, semua di 1 $transaction.
-    // Idempotent: kalau payment sudah released, transaction kosong tapi
-    // tidak error.
     let escrowReleased = false;
     const releasedAt = new Date();
     let releasedNetAmount = 0;
     try {
       await this.prisma.$transaction(async (tx) => {
-        // Kunci baris 'held' milik kontrak ini (FOR UPDATE). Transaksi konkuren
-        // (mis. manual releaseEscrow) akan BLOCK lalu melihat status sudah
-        // 'released' → 0 baris → tidak meng-kredit wallet dua kali.
         const heldPayments = await tx.$queryRaw<
           Array<{ id: string; net_amount: number }>
         >`SELECT id, net_amount FROM payments
@@ -283,7 +258,6 @@ export class ContractsService {
           FOR UPDATE`;
         if (heldPayments.length === 0) return;
 
-        // Update status semuanya
         await tx.payments.updateMany({
           where: { contract_id: id, status: 'held' as any },
           data: {
@@ -292,10 +266,7 @@ export class ContractsService {
           },
         });
 
-        // Tambah ke wallet mahasiswa untuk setiap payment
-        // (umumnya cuma 1, tapi safety: loop semua)
         for (const p of heldPayments) {
-          // Upsert wallet
           const wallet = await tx.wallets.upsert({
             where: { user_id: contract.student_id },
             update: {},
@@ -336,7 +307,6 @@ export class ContractsService {
 
     const project = await this.projectsRepository.findById(contract.project_id);
 
-    // Notif ke mahasiswa: project selesai + dana cair
     void this.notificationsService.create({
       user_id: contract.student_id,
       type: 'contract',
@@ -348,7 +318,6 @@ export class ContractsService {
       action_url: `/contracts/${contract.id}`,
     });
 
-    // Notif tier upgrade kalau ada
     if (tierAfter !== tierBefore) {
       void this.notificationsService.create({
         user_id: contract.student_id,
@@ -366,30 +335,12 @@ export class ContractsService {
     };
   }
 
-  /**
-   * Naikkan tier mahasiswa otomatis berdasarkan jumlah project + rating.
-   * Threshold:
-   *   - mahir:    total ≥ 50 dan rating ≥ 4.0
-   *   - menengah: total ≥ 25 dan rating ≥ 3.5
-   *   - pemula:   default
-   *
-   * Return: tier baru (sama dengan currentTier kalau tidak berubah).
-   * Diubah dari void → string supaya caller bisa tahu apakah ada upgrade.
-   */
   private async _autoUpgradeTier(
     studentId: string,
     totalProjects: number,
     avgRating: number,
     currentTier: string,
   ): Promise<string> {
-    /* Ambang tier. Sebelumnya 25 proyek untuk menengah dan 50 untuk mahir:
-       di marketplace mahasiswa, angka itu praktis tidak pernah tercapai
-       sehingga fitur tingkat tidak pernah terlihat oleh siapa pun.
-
-       Tier tidak pernah turun. Rating rata-rata bergerak setiap kali ada
-       review, dan menurunkan tier diam-diam karena satu review buruk terasa
-       seperti hukuman yang tidak diumumkan. Kalau perlu penurunan, itu
-       keputusan admin, bukan efek samping. */
     const urutan = { pemula: 0, menengah: 1, mahir: 2 } as const;
     let hitungan: 'pemula' | 'menengah' | 'mahir' = 'pemula';
     if (totalProjects >= 10 && avgRating >= 4.5) {
@@ -397,7 +348,9 @@ export class ContractsService {
     } else if (totalProjects >= 3 && avgRating >= 4.0) {
       hitungan = 'menengah';
     }
-    const sekarang = (currentTier in urutan ? currentTier : 'pemula') as keyof typeof urutan;
+    const sekarang = (
+      currentTier in urutan ? currentTier : 'pemula'
+    ) as keyof typeof urutan;
     const newTier = urutan[hitungan] > urutan[sekarang] ? hitungan : sekarang;
 
     if (newTier !== sekarang) {
@@ -423,7 +376,6 @@ export class ContractsService {
     const reason =
       body?.reason || 'Deliverable tidak sesuai, silakan upload ulang';
 
-    // Update history deliverable terakhir jadi rejected
     await this.prisma.contract_deliverables.updateMany({
       where: { contract_id: id, status: 'pending' },
       data: {
@@ -441,7 +393,6 @@ export class ContractsService {
       progress_pct: 50,
     });
 
-    // Notif ke mahasiswa: deliverable ditolak, perlu revisi
     const project = await this.projectsRepository.findById(contract.project_id);
     void this.notificationsService.create({
       user_id: contract.student_id,

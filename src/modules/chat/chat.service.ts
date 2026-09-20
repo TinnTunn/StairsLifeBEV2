@@ -1,3 +1,5 @@
+// Logika obrolan dan riwayat pesan.
+
 import { Injectable, Optional } from '@nestjs/common';
 import { SupabaseService } from '../../config/supabase.config';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -12,8 +14,6 @@ interface InquirySender {
 export class ChatService {
   constructor(
     private supabase: SupabaseService,
-    // Optional: bisa null kalau NotificationsModule tidak tersedia
-    // (mis. saat unit test). Pemanggilan diaman-kan via optional chain.
     @Optional() private notificationsService?: NotificationsService,
   ) {}
 
@@ -65,10 +65,6 @@ export class ChatService {
       .neq('sender_id', userId);
   }
 
-  /**
-   * Ambil kedua pihak kontrak (student & business) — dipakai gateway untuk
-   * menentukan penerima saat push notifikasi inbox real-time.
-   */
   async getContractParties(
     contractId: string,
   ): Promise<{ student_id: string; business_id: string } | null> {
@@ -96,11 +92,6 @@ export class ChatService {
     return !!data;
   }
 
-  /**
-   * Kirim notif ke receiver saat ada inquiry message baru.
-   * Non-blocking: kalau gagal, hanya log warning (operasi kirim pesan
-   * tetap sukses).
-   */
   async notifyInquiry(
     receiverId: string,
     sender: InquirySender,
@@ -109,14 +100,11 @@ export class ChatService {
     if (!this.notificationsService) return;
 
     const senderName = sender.full_name || 'Seseorang';
-    // Truncate content supaya body notif tidak terlalu panjang
     const preview =
       content.length > 80 ? content.substring(0, 77) + '...' : content;
 
     await this.notificationsService.create({
       user_id: receiverId,
-      // Pakai 'system' karena enum notification_type tidak punya 'inquiry'.
-      // Title yang descriptive sudah cukup untuk membedakan dari notif lain.
       type: 'system',
       title: `💬 Pesan baru dari ${senderName}`,
       body: preview,

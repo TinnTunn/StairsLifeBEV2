@@ -1,3 +1,5 @@
+// DTO penangguhan akun pengguna.
+
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class SuspendUserDto {

@@ -1,3 +1,5 @@
+// Logika data pengguna dan pengajuan verifikasi.
+
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { UsersRepository } from './users.repository';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -23,9 +25,6 @@ export class UsersService {
     const sanitized: Record<string, any> = {};
 
     for (const [key, value] of Object.entries(dto)) {
-      // bio adalah satu-satunya field yang boleh dikosongkan oleh user.
-      // Kalau dikirim sebagai "" atau null → simpan null ke DB (hapus bio).
-      // Kalau tidak dikirim sama sekali (undefined) → skip, biarkan nilai lama.
       if (key === 'bio') {
         if (value !== undefined) {
           sanitized[key] = value === '' || value === null ? null : value;
@@ -33,12 +32,10 @@ export class UsersService {
         continue;
       }
 
-      // Field lain: skip kalau kosong/null/undefined — tidak boleh dikosongkan.
       if (value === '' || value === null || value === undefined) continue;
       sanitized[key] = value;
     }
 
-    // Auto-prefix https:// untuk portfolio_url jika user tidak ketik protokol.
     if (
       typeof sanitized.portfolio_url === 'string' &&
       sanitized.portfolio_url.length > 0 &&

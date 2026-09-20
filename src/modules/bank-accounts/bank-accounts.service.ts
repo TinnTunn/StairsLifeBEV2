@@ -1,3 +1,5 @@
+// Logika pendaftaran dan pengelolaan rekening bank.
+
 import {
   Injectable,
   NotFoundException,
@@ -8,23 +10,11 @@ import {
 import { PrismaService } from '../../config/prisma.service';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto';
 
-/**
- * BankAccountsService — register rekening tujuan disbursement.
- *
- * Aturan bisnis:
- *   - 1 user bisa punya banyak rekening.
- *   - 1 rekening primary per user (database constraint: partial unique index).
- *   - Tidak bisa duplicate (user_id, account_number) — DB constraint.
- *   - Rekening primary otomatis digeser saat add baru dengan is_primary=true.
- *   - Tidak bisa hapus rekening yang punya withdrawal status='pending' /
- *     'processing' (data integrity).
- */
 @Injectable()
 export class BankAccountsService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateBankAccountDto) {
-    // Cek duplicate
     const existing = await this.prisma.bank_accounts.findFirst({
       where: { user_id: userId, account_number: dto.account_number },
     });
@@ -32,13 +22,11 @@ export class BankAccountsService {
       throw new ConflictException('Nomor rekening ini sudah terdaftar');
     }
 
-    // Cek apakah ini rekening pertama → jadikan primary otomatis
     const count = await this.prisma.bank_accounts.count({
       where: { user_id: userId },
     });
     const isPrimary = dto.is_primary === true || count === 0;
 
-    // Kalau set primary, unset primary lama dulu
     if (isPrimary) {
       await this.prisma.bank_accounts.updateMany({
         where: { user_id: userId, is_primary: true },
@@ -114,7 +102,6 @@ export class BankAccountsService {
       throw new ForbiddenException('Bukan rekening kamu');
     }
 
-    // Cek apakah ada withdrawal pending/processing yang pakai rekening ini
     const inUse = await this.prisma.withdrawals.findFirst({
       where: {
         bank_account_id: id,

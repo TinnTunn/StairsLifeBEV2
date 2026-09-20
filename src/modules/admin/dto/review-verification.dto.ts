@@ -1,3 +1,5 @@
+// DTO peninjauan pengajuan verifikasi.
+
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 
 export enum VerificationAction {

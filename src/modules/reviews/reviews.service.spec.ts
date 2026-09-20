@@ -1,3 +1,5 @@
+// Uji unit logika ulasan.
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { ReviewsService } from './reviews.service';
 import { PrismaService } from '../../config/prisma.service';
@@ -22,14 +24,7 @@ describe('ReviewsService', () => {
     expect(service).toBeDefined();
   });
 
-  /* Aturan tier: naik di 3 proyek (rating >= 4,0) dan 10 proyek (rating >= 4,5),
-     dan tidak pernah turun. Ambang lama (25 dan 50) praktis tidak pernah
-     tercapai, dan penurunan diam-diam saat rating sedikit merosot terasa
-     seperti hukuman yang tidak diumumkan. */
   describe('_autoUpgradeTier', () => {
-    /* Dipanggil lewat fungsi, bukan di-bind saat describe: service baru ada
-       setelah beforeEach berjalan. Prisma-nya diganti boneka karena yang diuji
-       aturannya, bukan penulisannya ke database. */
     const naik = (
       id: string,
       proyek: number,

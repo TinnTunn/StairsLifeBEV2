@@ -1,3 +1,5 @@
+// Logika penarikan dana: pengajuan, penahanan saldo, dan disbursement.
+
 import {
   Injectable,
   NotFoundException,
@@ -12,20 +14,6 @@ import { XenditService } from '../xendit/xendit.service';
 import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { ProcessWithdrawalDto } from './dto/process-withdrawal.dto';
 
-/**
- * WithdrawalsService — mahasiswa cair dari saldo wallet ke rekening.
- *
- * Flow:
- *   1. Mahasiswa POST /withdrawals dengan bank_account_id + amount
- *      → record withdrawal status='pending'
- *      → wallet.amount turun, wallet.pending_amount naik (lock dana)
- *   2. Admin lihat list di dashboard
- *   3a. Admin approve manual: status='completed', wallet.pending_amount turun
- *       (admin transfer via mobile banking sendiri)
- *   3b. Admin approve dengan Xendit: call Disbursement API, status='processing',
- *       tunggu webhook untuk update 'completed' / 'failed'
- *   3c. Admin reject: status='rejected', refund pending_amount ke amount
- */
 @Injectable()
 export class WithdrawalsService {
   private readonly logger = new Logger(WithdrawalsService.name);
@@ -42,8 +30,6 @@ export class WithdrawalsService {
     this.minAmount = Number(process.env.WITHDRAWAL_MIN_AMOUNT ?? 50_000);
   }
 
-  // ─── USER FLOWS ────────────────────────────────────────────
-
   async create(userId: string, dto: CreateWithdrawalDto) {
     if (dto.amount < this.minAmount) {
       throw new BadRequestException(
@@ -57,7 +43,6 @@ export class WithdrawalsService {
       );
     }
 
-    // Validate bank account
     const bankAccount = await this.prisma.bank_accounts.findUnique({
       where: { id: dto.bank_account_id },
     });
@@ -68,7 +53,6 @@ export class WithdrawalsService {
       throw new ForbiddenException('Bukan rekening kamu');
     }
 
-    // Check saldo cukup
     const wallet = await this.prisma.wallets.findUnique({
       where: { user_id: userId },
     });
@@ -87,12 +71,7 @@ export class WithdrawalsService {
 
     const amountNet = dto.amount - this.adminFee;
 
-    // Lock saldo via $transaction
     const withdrawal = await this.prisma.$transaction(async (tx) => {
-      // Lock saldo ATOMIK: kurangi hanya bila saldo masih cukup pada saat
-      // UPDATE dijalankan. Cek `Number(wallet.amount) < dto.amount` di atas
-      // bisa balapan (TOCTOU) — dua permintaan konkuren sama-sama lolos lalu
-      // membuat saldo negatif. `WHERE amount >= X` menutup celah itu.
       const locked = await tx.wallets.updateMany({
         where: { id: wallet.id, amount: { gte: dto.amount } },
         data: {
@@ -170,7 +149,6 @@ export class WithdrawalsService {
       take: 20,
     });
 
-    // BigInt → number untuk JSON serialization (di response interceptor)
     return {
       data: {
         amount: Number(wallet.amount),
@@ -185,8 +163,6 @@ export class WithdrawalsService {
       message: 'Berhasil',
     };
   }
-
-  // ─── ADMIN FLOWS ───────────────────────────────────────────
 
   async listAll(status?: string, page = 1, limit = 20) {
     const where: any = status ? { status } : {};
@@ -262,7 +238,6 @@ export class WithdrawalsService {
         },
       });
 
-      // Refund: pending_amount → amount
       await tx.wallets.update({
         where: { id: wallet.id },
         data: {
@@ -316,7 +291,6 @@ export class WithdrawalsService {
         },
       });
 
-      // pending_amount keluar, total_withdrawn naik
       await tx.wallets.update({
         where: { id: wallet.id },
         data: {
@@ -409,10 +383,6 @@ export class WithdrawalsService {
     };
   }
 
-  /**
-   * Handle webhook disbursement dari Xendit.
-   * Status mungkin COMPLETED atau FAILED.
-   */
   async handleDisbursementWebhook(payload: {
     id: string;
     external_id: string;
@@ -486,7 +456,6 @@ export class WithdrawalsService {
         action_url: `/wallet`,
       });
     } else {
-      // FAILED — refund saldo
       await this.prisma.$transaction(async (tx) => {
         await tx.withdrawals.update({
           where: { id: wd.id },

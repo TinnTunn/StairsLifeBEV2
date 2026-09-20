@@ -1,3 +1,5 @@
+// Pengelola peran dan izin admin.
+
 import {
   Injectable,
   BadRequestException,
@@ -13,12 +15,6 @@ export interface RoleInput {
   members?: string[];
 }
 
-/**
- * RolesService — registry role/permission admin (tabel admin_roles).
- *
- * Scope: definisi & manajemen role (CRUD). BUKAN enforcement —
- * pengecekan akses tetap di RolesGuard (role='admin').
- */
 @Injectable()
 export class RolesService {
   constructor(private readonly supabase: SupabaseService) {}
@@ -78,7 +74,6 @@ export class RolesService {
   }
 
   async remove(id: string) {
-    // Cegah hapus role bawaan sistem.
     const { data: role } = await this.supabase
       .getClient()
       .from('admin_roles')

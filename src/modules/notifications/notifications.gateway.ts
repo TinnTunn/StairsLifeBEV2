@@ -1,3 +1,5 @@
+// Gateway WebSocket namespace /notifications untuk dorongan waktu nyata.
+
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -7,44 +9,13 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { buildCorsOriginList } from '../../common/cors.util';
 
-/**
- * Bangun daftar origin yang diizinkan untuk koneksi WebSocket /notifications.
- * Identik dengan logic di ChatGateway dan REST CORS — di-duplikasi karena
- * decorator @WebSocketGateway() butuh nilai compile-time.
- */
-function buildWsOriginList(): string[] {
-  const fromEnv = (process.env.FRONTEND_URL || '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+const WS_ALLOWED_ORIGINS = buildCorsOriginList();
 
-  const isDev = (process.env.NODE_ENV || 'development') !== 'production';
-  const devDefaults = isDev
-    ? [
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://localhost:5500',
-        'http://127.0.0.1:5500',
-      ]
-    : [];
-
-  return Array.from(new Set([...fromEnv, ...devDefaults]));
-}
-
-const WS_ALLOWED_ORIGINS = buildWsOriginList();
-
-/**
- * Gateway untuk push notifikasi real-time.
- * Per-user room — setiap user di-join ke room `user:{userId}` saat connect.
- *
- * Namespace `/notifications` — client connect ke `ws://host/notifications`.
- */
 @Injectable()
 @WebSocketGateway({
   cors: {
-    // Whitelist eksplisit. SEBELUMNYA: origin: '*' + credentials: true,
-    // kombinasi yang ditolak browser dan security risk.
     origin: WS_ALLOWED_ORIGINS,
     credentials: false,
   },
@@ -58,7 +29,6 @@ export class NotificationsGateway
 
   private readonly logger = new Logger(NotificationsGateway.name);
 
-  // Tracking connected sockets per user (1 user bisa multi-device).
   private userSockets = new Map<string, Set<string>>(); // userId → Set<socketId>
 
   constructor(private jwtService: JwtService) {
@@ -88,7 +58,6 @@ export class NotificationsGateway
         return;
       }
 
-      // Tolak refresh token dipakai untuk koneksi WS.
       if (payload['type'] === 'refresh') {
         client.emit('error', {
           message: 'Refresh token tidak bisa dipakai untuk WebSocket',
@@ -126,10 +95,6 @@ export class NotificationsGateway
     this.logger.log(`Notif disconnected: ${client.id}`);
   }
 
-  /**
-   * Push notifikasi baru ke semua device user.
-   * Dipanggil dari NotificationsService.create().
-   */
   async pushToUser(userId: string, notif: unknown): Promise<boolean> {
     if (!this.server) return false;
     const sockets = this.userSockets.get(userId);
@@ -143,9 +108,6 @@ export class NotificationsGateway
     return isOnline;
   }
 
-  /**
-   * Push update unread count ke user (mis. setelah markRead).
-   */
   async pushUnreadCount(userId: string, count: number): Promise<void> {
     if (!this.server) return;
     this.server.to(`user:${userId}`).emit('unread_count', { count });

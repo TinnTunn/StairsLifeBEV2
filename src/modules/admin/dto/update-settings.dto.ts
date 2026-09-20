@@ -1,3 +1,5 @@
+// DTO perubahan pengaturan platform.
+
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateSettingsDto {

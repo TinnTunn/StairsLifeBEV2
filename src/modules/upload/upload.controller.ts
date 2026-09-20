@@ -1,3 +1,5 @@
+// Endpoint unggah berkas.
+
 import {
   Controller,
   Post,
@@ -38,7 +40,6 @@ const VALID_TYPES: UploadType[] = [
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
-  // ─── POST /upload ──────────────────────────────────────────────
   @Post()
   @UseInterceptors(
     FileInterceptor('file', {
@@ -96,7 +97,6 @@ export class UploadController {
     return this.uploadService.formatResponse(file, url);
   }
 
-  // ─── GET /upload/signed-url?path=deliverables/userId/file.pdf ──
   @Get('signed-url')
   async getSignedUrl(@Query('path') path: string, @Req() req: Request) {
     if (!path) {

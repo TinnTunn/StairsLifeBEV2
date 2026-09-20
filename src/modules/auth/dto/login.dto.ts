@@ -1,3 +1,5 @@
+// DTO permintaan masuk.
+
 import { IsEmail, IsString, IsNotEmpty } from 'class-validator';
 
 export class LoginDto {

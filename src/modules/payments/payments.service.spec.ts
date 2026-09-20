@@ -1,4 +1,5 @@
-/// <reference types="jest" />
+// Uji unit logika pembayaran.
+
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -12,15 +13,6 @@ import { ContractsRepository } from '../contracts/contracts.repository';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../../config/prisma.service';
 import { XenditService } from '../xendit/xendit.service';
-
-/**
- * Unit test perilaku PaymentsService — fokus idempotency & otorisasi.
- *
- * Catatan cakupan: race-condition (double-credit / overspend) TIDAK bisa
- * diuji di level unit karena butuh DB transaksi nyata + konkurensi. Lihat
- * blok `describe.skip('CONCURRENCY (integration)')` di bawah untuk skenario
- * yang harus diuji dengan Postgres test container.
- */
 
 const BIZ = 'biz-1';
 const STUDENT = 'std-1';
@@ -106,7 +98,6 @@ describe('PaymentsService', () => {
       await expect(service.createInvoice(dto, BIZ)).rejects.toBeInstanceOf(
         ConflictException,
       );
-      // Tidak boleh buat invoice Xendit baru
       expect(xendit.createInvoice).not.toHaveBeenCalled();
     });
 
@@ -131,7 +122,6 @@ describe('PaymentsService', () => {
       const res = await service.createInvoice(dto, BIZ);
 
       expect(res.data.invoice_url).toBe('https://xendit/invoice/abc');
-      // Idempotent: TIDAK panggil Xendit & TIDAK buat record baru
       expect(xendit.createInvoice).not.toHaveBeenCalled();
       expect(prisma.payments.create).not.toHaveBeenCalled();
     });
@@ -207,9 +197,6 @@ describe('PaymentsService', () => {
     });
   });
 
-  // ─── SKENARIO YANG BUTUH INTEGRATION TEST (DB nyata) ───────────────
-  // Race-condition di bawah TIDAK terdeteksi oleh unit test. Jalankan
-  // dengan Postgres (mis. testcontainers) + Promise.all untuk konkurensi.
   describe.skip('CONCURRENCY (butuh Postgres test DB)', () => {
     it('approveDeliverable 2x konkuren TIDAK boleh double-credit wallet', () => {
       /* Promise.all([approve(c), approve(c)]) → wallet += net HANYA sekali */

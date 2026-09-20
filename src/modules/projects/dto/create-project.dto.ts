@@ -1,3 +1,5 @@
+// DTO pemasangan proyek.
+
 import {
   IsString,
   IsNotEmpty,

@@ -1,3 +1,5 @@
+// DTO pengiriman ulasan.
+
 import {
   IsUUID,
   IsInt,

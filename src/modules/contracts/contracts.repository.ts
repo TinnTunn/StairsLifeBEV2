@@ -1,3 +1,5 @@
+// Akses basis data kontrak.
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 
@@ -42,11 +44,6 @@ export class ContractsRepository {
     return this.prisma.contracts.findMany({
       where: { student_id: studentId },
       select: {
-        // Scalar fields — semua yang dibutuhkan loadContractDetail
-        // (FE pakai ini untuk render progress bar, deliverable history,
-        // status timestamps, dll. Sebelumnya field-field ini hilang dari
-        // response sehingga contract.progress_pct = undefined → tampil 0%
-        // padahal di DB sudah 100%.)
         id: true,
         application_id: true,
         project_id: true,
@@ -61,7 +58,6 @@ export class ContractsRepository {
         started_at: true,
         completed_at: true,
         created_at: true,
-        // Relasi
         projects: {
           select: { id: true, title: true, category: true, tier: true },
         },
@@ -77,8 +73,6 @@ export class ContractsRepository {
     return this.prisma.contracts.findMany({
       where: { business_id: businessId },
       select: {
-        // Scalar fields — semua yang dibutuhkan FE (lihat catatan di
-        // findByStudentId untuk alasan kenapa semua field harus di-select).
         id: true,
         application_id: true,
         project_id: true,
@@ -93,7 +87,6 @@ export class ContractsRepository {
         started_at: true,
         completed_at: true,
         created_at: true,
-        // Relasi
         projects: {
           select: { id: true, title: true, category: true, tier: true },
         },

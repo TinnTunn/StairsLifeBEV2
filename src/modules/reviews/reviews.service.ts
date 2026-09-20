@@ -1,3 +1,5 @@
+// Logika ulasan dan perhitungan rata rata penilaian.
+
 import {
   Injectable,
   BadRequestException,
@@ -17,7 +19,6 @@ export class ReviewsService {
   async create(reviewerId: string, dto: CreateReviewDto) {
     const { contract_id, rating, comment, tags } = dto;
 
-    // Cek kontrak ada dan sudah completed
     const contract = await this.prisma.contracts.findFirst({
       where: {
         id: contract_id,
@@ -29,16 +30,11 @@ export class ReviewsService {
     if (!contract)
       throw new NotFoundException('Kontrak tidak ditemukan atau belum selesai');
 
-    // Tentukan reviewee — kalau bisnis review, reviewee = mahasiswa;
-    // kalau mahasiswa review, reviewee = bisnis.
-    // (Reviewee tidak boleh diambil dari body — bisa di-spoof. Wajib derive
-    // dari contract.)
     const actualRevieweeId =
       reviewerId === contract.business_id
         ? contract.student_id
         : contract.business_id;
 
-    // Cek review dari reviewer ini untuk kontrak ini belum ada
     const existing = await this.prisma.reviews.findFirst({
       where: { contract_id, reviewer_id: reviewerId },
     });
@@ -58,7 +54,6 @@ export class ReviewsService {
       },
     });
 
-    // Update rating_avg reviewee
     const allReviews = await this.prisma.reviews.findMany({
       where: { reviewee_id: actualRevieweeId },
       select: { rating: true },
@@ -70,10 +65,6 @@ export class ReviewsService {
       data: { rating_avg: avg },
     });
 
-    // BUG FIX: re-evaluate tier kalau reviewee adalah mahasiswa (bisa naik
-    // kalau rating baru ini melewati threshold). Sebelumnya tier cuma di-cek
-    // saat approve deliverable, jadi mahasiswa yang barusan dapat rating 5
-    // dan crossover threshold harus nunggu project berikutnya selesai dulu.
     let tierUpgrade: { from: string; to: string } | null = null;
     if (updatedReviewee.role === 'mahasiswa') {
       tierUpgrade = await this._autoUpgradeTier(
@@ -84,7 +75,6 @@ export class ReviewsService {
       );
     }
 
-    // Notif ke reviewee: dapat review baru
     const reviewer = await this.prisma.users.findUnique({
       where: { id: reviewerId },
       select: { full_name: true },
@@ -99,7 +89,6 @@ export class ReviewsService {
       action_url: `/profile`,
     });
 
-    // Notif tier upgrade kalau ada
     if (tierUpgrade) {
       void this.notificationsService.create({
         user_id: actualRevieweeId,
@@ -111,34 +100,15 @@ export class ReviewsService {
       });
     }
 
-    // NOTE: total_projects TIDAK di-increment di sini.
-    // Counter project selesai sudah di-handle oleh ContractsService.approveDeliverable —
-    // memberi review tidak menambah "project selesai" lagi (sebelumnya double-count).
-
     return { data: review, message: 'Review berhasil diberikan' };
   }
 
-  /**
-   * Sama dengan logika di ContractsService._autoUpgradeTier — di-duplikasi
-   * di sini supaya rating update juga bisa trigger naik tier. (Idealnya di-
-   * extract ke shared utility / UsersService di refactor selanjutnya.)
-   *
-   * Return: { from, to } kalau ada upgrade, null kalau tidak berubah.
-   */
   private async _autoUpgradeTier(
     studentId: string,
     totalProjects: number,
     avgRating: number,
     currentTier: string,
   ): Promise<{ from: string; to: string } | null> {
-    /* Ambang tier. Sebelumnya 25 proyek untuk menengah dan 50 untuk mahir:
-       di marketplace mahasiswa, angka itu praktis tidak pernah tercapai
-       sehingga fitur tingkat tidak pernah terlihat oleh siapa pun.
-
-       Tier tidak pernah turun. Rating rata-rata bergerak setiap kali ada
-       review, dan menurunkan tier diam-diam karena satu review buruk terasa
-       seperti hukuman yang tidak diumumkan. Kalau perlu penurunan, itu
-       keputusan admin, bukan efek samping. */
     const urutan = { pemula: 0, menengah: 1, mahir: 2 } as const;
     let hitungan: 'pemula' | 'menengah' | 'mahir' = 'pemula';
     if (totalProjects >= 10 && avgRating >= 4.5) {
@@ -146,7 +116,9 @@ export class ReviewsService {
     } else if (totalProjects >= 3 && avgRating >= 4.0) {
       hitungan = 'menengah';
     }
-    const sekarang = (currentTier in urutan ? currentTier : 'pemula') as keyof typeof urutan;
+    const sekarang = (
+      currentTier in urutan ? currentTier : 'pemula'
+    ) as keyof typeof urutan;
     const newTier = urutan[hitungan] > urutan[sekarang] ? hitungan : sekarang;
     if (newTier !== sekarang) {
       await this.prisma.users.update({
@@ -159,7 +131,6 @@ export class ReviewsService {
   }
 
   async getByContract(contractId: string) {
-    // Ambil semua review untuk kontrak ini (bisa 2: bisnis→mahasiswa dan mahasiswa→bisnis)
     const reviews = await this.prisma.reviews.findMany({
       where: { contract_id: contractId },
       include: {

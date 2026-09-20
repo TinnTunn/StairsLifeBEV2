@@ -1,4 +1,5 @@
-/// <reference types="jest" />
+// Uji unit logika unggah berkas.
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { UploadService } from './upload.service';
@@ -11,9 +12,6 @@ describe('UploadService', () => {
       providers: [
         UploadService,
         {
-          // UploadService memanggil createClient() di constructor — butuh URL
-          // & key valid (format saja, tanpa koneksi nyata) agar tidak throw
-          // "supabaseUrl is required".
           provide: ConfigService,
           useValue: {
             get: (key: string) =>

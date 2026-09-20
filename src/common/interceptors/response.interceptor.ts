@@ -1,3 +1,5 @@
+// Pembungkus respons sukses ke envelope success, data, message, timestamp.
+
 import {
   Injectable,
   NestInterceptor,
@@ -7,13 +9,11 @@ import {
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-/** Shape yang kita terima dari controller sebelum di-wrap */
 interface ControllerResponse {
   data?: unknown;
   message?: string;
 }
 
-/** Shape response final yang dikirim ke client */
 interface StandardResponse {
   success: boolean;
   data: unknown;
@@ -21,10 +21,6 @@ interface StandardResponse {
   timestamp: string;
 }
 
-/**
- * Wrap semua response sukses dalam format standar:
- * { success, data, message, timestamp }
- */
 @Injectable()
 export class ResponseInterceptor<
   T extends ControllerResponse,

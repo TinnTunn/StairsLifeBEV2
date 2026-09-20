@@ -1,3 +1,5 @@
+// Templat surel atur ulang kata sandi.
+
 import { htmlLayout, ctaButton, escapeHtml } from './layout';
 
 export interface PasswordResetEmailProps {

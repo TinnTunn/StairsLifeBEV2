@@ -1,3 +1,5 @@
+// Endpoint panel admin.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -42,7 +44,6 @@ export class AdminController {
     private readonly payments: PaymentsService,
   ) {}
 
-  // GET /api/v1/admin/me — izin admin yang sedang masuk, untuk menyusun menu.
   @Get('me')
   async getMe(@CurrentUser() user: JwtUser) {
     const akses = await this.izinGuard.aksesUntuk(user);
@@ -58,16 +59,12 @@ export class AdminController {
     );
   }
 
-  // GET /api/v1/admin/stats
   @Get('stats')
   @Izin('Overview')
   async getStats() {
     return this.adminService.getStats();
   }
 
-  // GET /api/v1/admin/users
-  // Tanpa `page`: seluruh daftar (bentuk lama). Dengan `page`: berpaginasi
-  // di server, dengan pencarian `q` dan saringan `status`.
   @Get('users')
   @Izin('Users')
   async getAllUsers(
@@ -87,7 +84,6 @@ export class AdminController {
     });
   }
 
-  // PATCH /api/v1/admin/users/:id/suspend
   @Patch('users/:id/suspend')
   @Izin('Users')
   async suspendUser(
@@ -107,14 +103,12 @@ export class AdminController {
     return res;
   }
 
-  // GET /api/v1/admin/verifications
   @Get('verifications')
   @Izin('Verification')
   async getVerifications(@Query('status') status?: string) {
     return this.adminService.getPendingVerifications(status);
   }
 
-  // PATCH /api/v1/admin/verifications/:id
   @Patch('verifications/:id')
   @Izin('Verification')
   async reviewVerification(
@@ -137,21 +131,18 @@ export class AdminController {
     return res;
   }
 
-  // GET /api/v1/admin/disputes
   @Get('disputes')
   @Izin('Disputes')
   async getDisputes(@Query('status') status?: string) {
     return this.adminService.getAllDisputes(status);
   }
 
-  // GET /api/v1/admin/disputes/:id
   @Get('disputes/:id')
   @Izin('Disputes')
   async getDispute(@Param('id', ParseUUIDPipe) id: string) {
     return this.adminService.getDisputeById(id);
   }
 
-  // PATCH /api/v1/admin/disputes/:id
   @Patch('disputes/:id')
   @Izin('Disputes')
   async resolveDispute(
@@ -174,14 +165,12 @@ export class AdminController {
     return res;
   }
 
-  // GET /api/v1/admin/projects
   @Get('projects')
   @Izin('Projects')
   async getAllProjects(@Query('status') status?: string) {
     return this.adminService.getAllProjects(status);
   }
 
-  // POST /api/v1/admin/announcements
   @Post('announcements')
   @Izin('Announcement')
   async sendAnnouncement(
@@ -202,14 +191,12 @@ export class AdminController {
     return res;
   }
 
-  // GET /api/v1/admin/announcements
   @Get('announcements')
   @Izin('Announcement')
   async getAnnouncements() {
     return this.adminService.getAnnouncements();
   }
 
-  // DELETE /api/v1/admin/projects/:id — hapus project (moderasi admin)
   @Delete('projects/:id')
   @Izin('Projects')
   async deleteProject(@Param('id') id: string, @CurrentUser() user: JwtUser) {
@@ -224,14 +211,12 @@ export class AdminController {
     return res;
   }
 
-  // GET /api/v1/admin/finances
   @Get('finances')
   @Izin('Finance')
   async getFinances() {
     return this.adminService.getFinances();
   }
 
-  // GET /api/v1/admin/finances/detail
   @Get('finances/detail')
   @Izin('Finance')
   async getFinancesDetail(
@@ -259,7 +244,6 @@ export class AdminController {
     @CurrentUser() user: JwtUser,
   ) {
     const res = await this.adminService.updateSettings(body);
-    // Layar dan tagihan harus langsung memakai komisi baru, bersamaan.
     this.settings.invalidate();
     this.payments.invalidateFeeCache();
     void this.audit.log({
@@ -278,7 +262,6 @@ export class AdminController {
     return this.adminService.getProjectContracts(id);
   }
 
-  // GET /api/v1/admin/audit-logs
   @Get('audit-logs')
   @Izin('Overview')
   async getAuditLogs(@Query('limit') limit = '50') {
@@ -286,7 +269,6 @@ export class AdminController {
     return { data, message: 'Berhasil' };
   }
 
-  // ─── ACCESS CONTROL (admin roles registry) ──────────────────
   @Get('roles')
   @Izin('Settings')
   async getRoles() {

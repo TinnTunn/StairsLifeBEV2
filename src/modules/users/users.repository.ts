@@ -1,10 +1,8 @@
+// Akses basis data pengguna.
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 
-/**
- * Field yang aman untuk di-expose ke frontend.
- * password_hash sengaja TIDAK ada di sini.
- */
 const PUBLIC_USER_SELECT = {
   id: true,
   full_name: true,

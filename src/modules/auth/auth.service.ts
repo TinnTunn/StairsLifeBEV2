@@ -1,3 +1,5 @@
+// Logika autentikasi dan pendaftaran akun.
+
 import {
   Injectable,
   UnauthorizedException,
@@ -15,7 +17,6 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
 const ALLOWED_REGISTER_ROLES = ['mahasiswa', 'bisnis'] as const;
-type AllowedRegisterRole = (typeof ALLOWED_REGISTER_ROLES)[number];
 
 export interface RequestContext {
   ipAddress?: string;
@@ -24,9 +25,6 @@ export interface RequestContext {
 
 @Injectable()
 export class AuthService {
-  // Hash bcrypt dummy (valid) untuk menyamakan waktu respons login saat user
-  // tidak ada / akun tanpa password — menutup user-enumeration via timing.
-  // Bukan rahasia; tidak pernah cocok dengan password user nyata.
   private static readonly DUMMY_PASSWORD_HASH =
     '$2b$12$xC/GOQFhxdafImNAcsj3deScfjdjgLoexlKOyAkshKVSV6U3T6yti';
 
@@ -38,10 +36,6 @@ export class AuthService {
     private emailService: EmailService,
     private sesi: SesiService,
   ) {}
-
-  // ============================================================
-  // REGISTER — sekarang kirim email verifikasi setelah create
-  // ============================================================
 
   async register(dto: RegisterDto, ctx?: RequestContext) {
     const supabase = this.supabaseService.getClient();
@@ -72,9 +66,6 @@ export class AuthService {
         password_hash: hashedPassword,
         role: dto.role,
         tier: 'pemula',
-        // Bisnis: otomatis terverifikasi saat daftar karena verifikasi
-        // mereka melalui escrow payment, bukan dokumen KTM.
-        // Mahasiswa: is_verified = false, harus upload KTM dan tunggu admin approve.
         is_verified: dto.role === 'bisnis' ? true : false,
         email_verified_at: null, // email verification belum
         university: dto.university ?? null,
@@ -91,8 +82,6 @@ export class AuthService {
       .single();
 
     if (error) {
-      // Race: dua register email sama berbarengan → unique violation di DB.
-      // Jangan teruskan pesan DB mentah (bocor internal + konfirmasi email ada).
       if (
         (error as any).code === '23505' ||
         /duplicate|unique|already exists/i.test(error.message || '')
@@ -102,8 +91,6 @@ export class AuthService {
       throw new BadRequestException('Pendaftaran gagal. Silakan coba lagi.');
     }
 
-    // Kirim email verifikasi (async, jangan block response).
-    // User yang gagal terima email bisa request resend.
     void this._sendVerificationEmail(user.id, user.email, user.full_name, ctx);
 
     const tokens = await this.buatPasanganToken(user, ctx);
@@ -118,10 +105,6 @@ export class AuthService {
     };
   }
 
-  // ============================================================
-  // LOGIN — block kalau email belum diverifikasi (opsional)
-  // ============================================================
-
   async login(dto: LoginDto, ctx?: RequestContext) {
     const supabase = this.supabaseService.getClient();
 
@@ -133,9 +116,6 @@ export class AuthService {
       .eq('email', dto.email)
       .single();
 
-    // Selalu jalankan bcrypt (pakai dummy hash bila user tak ada / tanpa
-    // password) supaya waktu respons seragam → tidak bocorkan keberadaan email
-    // lewat timing. Pesan & urutan cek tetap sama seperti sebelumnya.
     const hashToCheck = user?.password_hash || AuthService.DUMMY_PASSWORD_HASH;
     const isPasswordValid = await bcrypt.compare(dto.password, hashToCheck);
 
@@ -143,8 +123,6 @@ export class AuthService {
       throw new UnauthorizedException('Email atau password salah');
     }
 
-    // Akun tanpa password_hash (mis. dibuat lewat jalur non-password).
-    // Arahkan ke "Lupa password" untuk mengatur password baru.
     if (!user.password_hash) {
       throw new UnauthorizedException(
         'Akun ini belum memiliki password. Silakan atur password melalui fitur "Lupa password".',
@@ -156,10 +134,6 @@ export class AuthService {
     }
 
     if (user.is_suspended) {
-      // Error TERSTRUKTUR (JSON di field message) supaya FE bisa
-      // JSON.parse(error.message) → tampilkan modal banding (showSuspendedModal)
-      // dengan alasan + form "Hubungi Admin", bukan sekadar toast.
-      // Kontrak ini sudah diharapkan FE di scripts/core/auth.js (parsed.suspended).
       throw new UnauthorizedException(
         JSON.stringify({
           suspended: true,
@@ -169,21 +143,6 @@ export class AuthService {
         }),
       );
     }
-
-    // OPSIONAL: block login kalau email belum diverifikasi.
-    // Pilihan desain:
-    //   (a) STRICT: tolak login, paksa verify dulu (lebih aman, friction tinggi)
-    //   (b) SOFT: izinkan login, batasi fitur sampai verified (UX lebih baik)
-    //
-    // Default kita: SOFT. Frontend cek `user.email_verified` → tampilkan
-    // banner "Verifikasi email kamu" + batasi apply project / post project.
-    // Kalau mau strict, uncomment di bawah:
-    //
-    // if (!user.email_verified_at) {
-    //   throw new UnauthorizedException(
-    //     'Email belum diverifikasi. Cek email kamu untuk link verifikasi.',
-    //   );
-    // }
 
     const {
       password_hash: _password_hash,
@@ -202,19 +161,6 @@ export class AuthService {
     };
   }
 
-  // ============================================================
-  // SUSPENSION APPEAL (publik — user suspended belum punya token)
-  // ============================================================
-
-  /**
-   * Suspended user (tidak bisa login) ajukan banding/konsultasi ke admin.
-   * Pesan disimpan ke support_messages room `support-{userId}` sehingga
-   * langsung muncul di inbox support admin (yang sudah menampilkan user
-   * suspended beserta riwayat chat-nya).
-   *
-   * SECURITY: hanya simpan kalau user ADA & memang suspended. Selalu balas
-   * pesan generik — tidak bocorkan keberadaan email / status akun.
-   */
   async submitSuspensionAppeal(email: string, message: string) {
     const supabase = this.supabaseService.getClient();
     const { data: user } = await supabase
@@ -240,10 +186,6 @@ export class AuthService {
     };
   }
 
-  // ============================================================
-  // EMAIL VERIFICATION
-  // ============================================================
-
   async verifyEmail(rawToken: string) {
     const result = await this.verificationToken.consume({
       rawToken,
@@ -256,7 +198,6 @@ export class AuthService {
       );
     }
 
-    // Tandai email verified
     const supabase = this.supabaseService.getClient();
     const { data: user } = await supabase
       .from('users')
@@ -272,7 +213,6 @@ export class AuthService {
       throw new BadRequestException('User tidak ditemukan');
     }
 
-    // Kirim welcome email (fire-and-forget)
     void this.emailService.sendWelcomeEmail({
       to: user.email,
       fullName: user.full_name,
@@ -293,8 +233,6 @@ export class AuthService {
       .eq('email', email)
       .single();
 
-    // SECURITY: jangan bocorkan apakah email terdaftar.
-    // Selalu return success message yang sama.
     if (user && !user.email_verified_at) {
       void this._sendVerificationEmail(
         user.id,
@@ -311,10 +249,6 @@ export class AuthService {
     };
   }
 
-  // ============================================================
-  // PASSWORD RESET
-  // ============================================================
-
   async forgotPassword(email: string, ctx?: RequestContext) {
     const supabase = this.supabaseService.getClient();
     const { data: user } = await supabase
@@ -323,9 +257,6 @@ export class AuthService {
       .eq('email', email)
       .single();
 
-    // SECURITY: jangan bocorkan apakah email terdaftar.
-    // Akun tanpa password pun boleh — reset jadi cara mereka mengatur
-    // password pertama kali.
     if (user) {
       const { rawToken } = await this.verificationToken.create({
         userId: user.id,
@@ -375,8 +306,6 @@ export class AuthService {
       throw new BadRequestException('Gagal update password');
     }
 
-    // Siapa pun yang memegang sesi lama (termasuk yang memicu reset karena
-    // akunnya diambil alih) harus masuk ulang.
     await this.sesi.cabutSemua(result.userId);
 
     return {
@@ -384,10 +313,6 @@ export class AuthService {
       message: 'Password berhasil direset. Silakan login dengan password baru.',
     };
   }
-
-  // ============================================================
-  // REFRESH (unchanged)
-  // ============================================================
 
   async refresh(refreshToken?: string, ctx?: RequestContext) {
     if (!refreshToken) {
@@ -407,8 +332,6 @@ export class AuthService {
       throw new UnauthorizedException('Token bukan refresh token');
     }
 
-    // Rotasi: sesi hanya bisa dipakai sekali. Token tanpa jti diterbitkan
-    // sebelum sesi bisa dicabut, jadi ditolak dan pengguna masuk ulang sekali.
     if (!payload.jti || !(await this.sesi.pakai(payload.jti, payload.sub))) {
       throw new UnauthorizedException({
         message: 'Sesi sudah berakhir. Silakan masuk lagi.',
@@ -446,10 +369,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Cabut sesi dari refresh token yang dikirim. Selalu berhasil: token yang
-   * rusak atau sudah kedaluwarsa berarti sesinya memang sudah tidak berlaku.
-   */
   async logout(refreshToken?: string) {
     if (refreshToken) {
       try {
@@ -463,10 +382,6 @@ export class AuthService {
     }
     return { data: null, message: 'Logout berhasil' };
   }
-
-  // ============================================================
-  // HELPERS
-  // ============================================================
 
   private async _sendVerificationEmail(
     userId: string,
@@ -488,7 +403,6 @@ export class AuthService {
         rawToken,
       });
     } catch (err: any) {
-      // Email gagal kirim TIDAK boleh block register. Log saja.
       console.error(`[Auth] gagal kirim verification email: ${err.message}`);
     }
   }

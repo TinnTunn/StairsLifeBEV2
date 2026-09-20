@@ -1,3 +1,5 @@
+// Filter galat global yang menyeragamkan bentuk respons kesalahan.
+
 import {
   ExceptionFilter,
   Catch,
@@ -7,7 +9,6 @@ import {
 import { Response } from 'express';
 import { tentukanKode } from './kode-galat';
 
-// Global error handler — standardize error response
 @Catch(HttpException)
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: HttpException, host: ArgumentsHost) {
@@ -22,7 +23,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
         : null;
     const message = isi && 'message' in isi ? isi.message : exception.message;
 
-    // Kode eksplisit dari service menang; selain itu ditebak dari pesan.
     const kode =
       isi && typeof isi.code === 'string'
         ? {

@@ -1,3 +1,5 @@
+// Endpoint pembayaran beserta webhook Xendit.
+
 import type { Request } from 'express';
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
@@ -35,10 +37,6 @@ export class PaymentsController {
     private readonly xenditService: XenditService,
   ) {}
 
-  // ─── XENDIT INVOICE (primary flow) ────────────────────────
-  // POST /api/v1/payments/invoice
-  // Bisnis trigger pembayaran. Backend create Xendit invoice & return
-  // invoice_url. FE redirect / buka tab ke URL itu.
   @Post('invoice')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('bisnis')
@@ -50,13 +48,6 @@ export class PaymentsController {
     return this.paymentsService.createInvoice(dto, user.id);
   }
 
-  // ─── XENDIT WEBHOOK (callback dari Xendit) ────────────────
-  // POST /api/v1/payments/webhook/xendit
-  // - Publik (no auth) — Xendit panggil dari server mereka
-  // - Verifikasi via header `x-callback-token`
-  // - Idempotent — Xendit retry sampai dapat 200
-  //
-  // PENTING: rate limit di-skip supaya retry Xendit tidak ke-throttle.
   @Post('webhook/xendit')
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
@@ -69,39 +60,22 @@ export class PaymentsController {
       throw new ForbiddenException('Invalid callback token');
     }
 
-    // Xendit kirim 2 jenis webhook ke URL yang sama:
-    // (a) Invoice paid/expired — bedanya ada field `external_id` & `payer_email`
-    // (b) Disbursement (kalau di-config di dashboard) — punya `is_instant`
-    //
-    // Untuk MVP, kita handle invoice di sini. Disbursement webhook diarahkan
-    // ke URL terpisah (lihat WithdrawalsController) atau bisa diteruskan
-    // dari sini.
     if (payload && typeof payload === 'object' && 'external_id' in payload) {
       return this.paymentsService.handleXenditInvoiceWebhook(payload);
     }
 
-    // Unknown payload — log & return 200 supaya Xendit tidak retry.
     this.logger.warn(
       `Webhook payload tidak dikenali: ${JSON.stringify(payload).slice(0, 200)}`,
     );
     return { success: true, message: 'Unknown payload type, ignored' };
   }
 
-  // ─── SYNC PAYMENT STATUS (fallback jika webhook miss) ─────
-  // GET /api/v1/payments/:id/sync
-  // FE bisa panggil ini setelah user balik dari Xendit redirect, supaya
-  // status di FE langsung update tanpa nunggu webhook.
   @Get(':id/sync')
   @UseGuards(JwtAuthGuard)
   async syncPayment(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.paymentsService.syncPaymentWithXendit(id, user.id);
   }
 
-  // ─── MANUAL ESCROW (ADMIN OVERRIDE saja) ──────────────────
-  // POST /api/v1/payments/escrow
-  // SECURITY: dulu @Roles('bisnis') — bisnis mana pun bisa menandai escrow
-  // 'held' TANPA pembayaran nyata (phantom money) → dicairkan ke wallet
-  // student. Sekarang dikunci ke admin. Flow pembayaran normal = createInvoice.
   @Post('escrow')
   @UseGuards(JwtAuthGuard, RolesGuard, IzinAdminGuard)
   @Roles('admin')
@@ -113,8 +87,6 @@ export class PaymentsController {
     return this.paymentsService.holdEscrow(dto, user.id);
   }
 
-  // ─── RELEASE ESCROW ───────────────────────────────────────
-  // PATCH /api/v1/payments/escrow/:id/release
   @Patch('escrow/:id/release')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('bisnis')
@@ -122,15 +94,12 @@ export class PaymentsController {
     return this.paymentsService.releaseEscrow(id, user.id);
   }
 
-  // ─── QUERIES ──────────────────────────────────────────────
-  // GET /api/v1/payments/my
   @Get('my')
   @UseGuards(JwtAuthGuard)
   async getMyPayments(@CurrentUser() user: JwtUser) {
     return this.paymentsService.getMyPayments(user.id);
   }
 
-  // GET /api/v1/payments/contract/:contractId
   @Get('contract/:contractId')
   @UseGuards(JwtAuthGuard)
   async getByContract(

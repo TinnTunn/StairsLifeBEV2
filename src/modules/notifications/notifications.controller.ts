@@ -1,3 +1,5 @@
+// Endpoint notifikasi pengguna.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -26,9 +28,6 @@ export class NotificationsController {
     return this.notificationsService.getUnreadCount(user.id);
   }
 
-  // PENTING: route static (read-all) harus DI ATAS route dinamis (:id/read)
-  // supaya tidak ke-tangkap sebagai param. NestJS evaluates by registration
-  // order — sebelumnya route ini bisa miss kalau ada ID dengan format "read-all".
   @Patch('read-all')
   markAllRead(@CurrentUser() user: JwtUser) {
     return this.notificationsService.markAllRead(user.id);

@@ -1,3 +1,5 @@
+// Logika pengaturan akun: ganti kata sandi dan alamat email.
+
 import {
   BadRequestException,
   ConflictException,
@@ -18,12 +20,6 @@ import { VerificationTokenService } from './verification-token.service';
 const TTL_GANTI_EMAIL = '1h';
 const TTL_GANTI_EMAIL_MS = 60 * 60 * 1000;
 
-/**
- * Keamanan akun: ganti kata sandi, ganti email, hapus akun.
- *
- * Kata sandi salah dibalas 400, bukan 401: frontend menganggap 401 sebagai
- * access token kedaluwarsa dan akan mencoba refresh lalu mengulang permintaan.
- */
 @Injectable()
 export class AkunService {
   private readonly logger = new Logger(AkunService.name);
@@ -57,10 +53,12 @@ export class AkunService {
 
     await this.prisma.users.update({
       where: { id: userId },
-      data: { password_hash: await bcrypt.hash(baru, 12), updated_at: new Date() },
+      data: {
+        password_hash: await bcrypt.hash(baru, 12),
+        updated_at: new Date(),
+      },
     });
 
-    // Semua perangkat lain keluar; perangkat ini langsung dapat sesi baru.
     await this.sesi.cabutSemua(userId);
     const pasangan = await this.auth.buatPasanganToken(user, ctx);
     return { data: pasangan, message: 'Password berhasil diganti' };
@@ -78,15 +76,14 @@ export class AkunService {
     }
     if (!user.password_hash) {
       throw new BadRequestException({
-        message: 'Atur password dulu lewat "Lupa password" sebelum mengganti email',
+        message:
+          'Atur password dulu lewat "Lupa password" sebelum mengganti email',
         code: 'PASSWORD_NOT_SET',
       });
     }
     await this.cekPassword(password, user.password_hash);
     await this.pastikanEmailBebas(target);
 
-    // Email tujuan ada di dalam token bertanda tangan; hash token disimpan
-    // supaya link hanya bisa dipakai sekali dan permintaan lama gugur.
     const raw = this.tokens.signPurpose(
       { sub: userId, new_email: target, purpose: 'email_change' },
       TTL_GANTI_EMAIL,
@@ -116,7 +113,11 @@ export class AkunService {
     } catch {
       throw this.linkEmailTidakValid();
     }
-    if (payload.purpose !== 'email_change' || !payload.sub || !payload.new_email) {
+    if (
+      payload.purpose !== 'email_change' ||
+      !payload.sub ||
+      !payload.new_email
+    ) {
       throw this.linkEmailTidakValid();
     }
 
@@ -124,7 +125,8 @@ export class AkunService {
       rawToken: token,
       type: 'email_change',
     });
-    if (!dipakai || dipakai.userId !== payload.sub) throw this.linkEmailTidakValid();
+    if (!dipakai || dipakai.userId !== payload.sub)
+      throw this.linkEmailTidakValid();
 
     const user = await this.ambil(payload.sub);
     await this.pastikanEmailBebas(payload.new_email);
@@ -134,7 +136,6 @@ export class AkunService {
       where: { id: user.id },
       data: {
         email: payload.new_email,
-        // Klik link dari kotak masuk baru membuktikan kepemilikan alamat itu.
         email_verified_at: new Date(),
         updated_at: new Date(),
       },
@@ -146,15 +147,12 @@ export class AkunService {
       newEmail: payload.new_email,
     });
 
-    return { data: { email: payload.new_email }, message: 'Email berhasil diganti' };
+    return {
+      data: { email: payload.new_email },
+      message: 'Email berhasil diganti',
+    };
   }
 
-  /**
-   * Hapus akun = anonimkan. Baris pengguna tetap ada karena kontrak,
-   * pembayaran, ulasan, dan penarikan merujuk ke sana dan wajib disimpan
-   * sebagai catatan transaksi. Yang dihapus: identitas, kontak, rekening yang
-   * tidak pernah dipakai, dokumen KTM dan selfie, notifikasi, dan semua sesi.
-   */
   async hapusAkun(userId: string, password: string, alasan?: string) {
     const user = await this.ambil(userId);
     if (user.role === 'admin') {
@@ -165,7 +163,8 @@ export class AkunService {
     }
     if (!user.password_hash) {
       throw new BadRequestException({
-        message: 'Atur password dulu lewat "Lupa password" sebelum menghapus akun',
+        message:
+          'Atur password dulu lewat "Lupa password" sebelum menghapus akun',
         code: 'PASSWORD_NOT_SET',
       });
     }
@@ -179,7 +178,10 @@ export class AkunService {
         data: { status: 'cancelled' },
       });
       await tx.applications.deleteMany({
-        where: { student_id: userId, status: { in: ['pending', 'shortlisted'] } },
+        where: {
+          student_id: userId,
+          status: { in: ['pending', 'shortlisted'] },
+        },
       });
       await tx.bank_accounts.deleteMany({
         where: { user_id: userId, withdrawals: { none: {} } },
@@ -218,7 +220,9 @@ export class AkunService {
 
     await this.sesi.cabutSemua(userId);
     void this.hapusBerkasPribadi(userId);
-    this.logger.log(`akun ${penanda} dihapus${alasan ? ` (alasan: ${alasan.slice(0, 120)})` : ''}`);
+    this.logger.log(
+      `akun ${penanda} dihapus${alasan ? ` (alasan: ${alasan.slice(0, 120)})` : ''}`,
+    );
 
     return { data: null, message: 'Akun berhasil dihapus' };
   }
@@ -243,7 +247,8 @@ export class AkunService {
       }),
     ]);
 
-    const saldo = Number(wallet?.amount ?? 0) + Number(wallet?.pending_amount ?? 0);
+    const saldo =
+      Number(wallet?.amount ?? 0) + Number(wallet?.pending_amount ?? 0);
     if (saldo > 0) {
       throw new BadRequestException({
         message: `Masih ada saldo Rp ${saldo.toLocaleString('id-ID')}. Tarik saldo dulu sebelum menghapus akun.`,
@@ -285,7 +290,9 @@ export class AkunService {
         const paths = (data ?? []).map((f) => `${folder}/${f.name}`);
         if (paths.length) await storage.from(bucket).remove(paths);
       } catch (e) {
-        this.logger.warn(`gagal hapus berkas ${bucket}/${folder}: ${(e as Error).message}`);
+        this.logger.warn(
+          `gagal hapus berkas ${bucket}/${folder}: ${(e as Error).message}`,
+        );
       }
     }
   }
@@ -293,7 +300,13 @@ export class AkunService {
   private async ambil(userId: string) {
     const user = await this.prisma.users.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, role: true, full_name: true, password_hash: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        full_name: true,
+        password_hash: true,
+      },
     });
     if (!user) throw new NotFoundException('User tidak ditemukan');
     return user;
@@ -313,7 +326,11 @@ export class AkunService {
       where: { email: { equals: email, mode: 'insensitive' } },
       select: { id: true },
     });
-    if (ada) throw new ConflictException({ message: 'Email sudah terdaftar', code: 'EMAIL_TAKEN' });
+    if (ada)
+      throw new ConflictException({
+        message: 'Email sudah terdaftar',
+        code: 'EMAIL_TAKEN',
+      });
   }
 
   private linkEmailTidakValid() {

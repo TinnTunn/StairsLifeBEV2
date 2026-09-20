@@ -1,3 +1,5 @@
+// Pencatat jejak audit tindakan admin.
+
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../../config/supabase.config';
 
@@ -10,15 +12,6 @@ export interface AuditEntry {
   metadata?: Record<string, any>;
 }
 
-/**
- * AuditService — mencatat aksi admin ke tabel `audit_logs`.
- *
- * Filosofi:
- * - Kegagalan menulis audit TIDAK boleh menggagalkan aksi utama
- *   (semua dibungkus try/catch, dipanggil via `void`).
- * - Storage pakai Supabase client (tabel tidak ada di Prisma schema),
- *   konsisten dengan modul chat.
- */
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -40,7 +33,6 @@ export class AuditService {
           created_at: new Date().toISOString(),
         });
     } catch (e) {
-      // Jangan ganggu alur utama kalau audit gagal.
       this.logger.warn(
         `Gagal menulis audit log (${entry.action}): ${(e as Error).message}`,
       );

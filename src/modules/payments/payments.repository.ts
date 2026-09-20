@@ -1,3 +1,5 @@
+// Akses basis data pembayaran.
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 
@@ -5,14 +7,6 @@ import { PrismaService } from '../../config/prisma.service';
 export class PaymentsRepository {
   constructor(private prisma: PrismaService) {}
 
-  /**
-   * Create payment. Status di-set dari payload (default 'held' untuk legacy
-   * manual flow, tapi 'pending' untuk Xendit invoice flow).
-   *
-   * BUG FIX: sebelumnya hardcoded 'held' override apapun yang di-pass —
-   * berarti createInvoice yang pass 'pending' selalu jadi 'held'. Sekarang
-   * default-nya hanya kalau payload tidak punya field status.
-   */
   async create(payload: any) {
     return this.prisma.payments.create({
       data: {
@@ -64,8 +58,6 @@ export class PaymentsRepository {
         held_at: true,
         released_at: true,
         created_at: true,
-        // Xendit fields supaya FE bisa render tombol "Lanjut Bayar"
-        // untuk invoice pending dan tampilkan payment_channel.
         xendit_invoice_url: true,
         xendit_invoice_id: true,
         payment_method: true,

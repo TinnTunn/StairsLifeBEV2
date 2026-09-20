@@ -1,3 +1,5 @@
+// Endpoint rekening bank tujuan penarikan.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -16,12 +18,6 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
-/**
- * Endpoint rekening tujuan disbursement.
- *
- * Akses: hanya mahasiswa (mereka yang menerima dana). Bisnis tidak butuh
- * rekening karena pembayaran masuk dari Xendit ke escrow merchant kita.
- */
 @Controller('bank-accounts')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('mahasiswa')

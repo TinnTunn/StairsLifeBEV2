@@ -1,3 +1,5 @@
+// Templat surel verifikasi alamat email.
+
 import { htmlLayout, ctaButton, escapeHtml } from './layout';
 
 export interface VerificationEmailProps {
@@ -5,14 +7,6 @@ export interface VerificationEmailProps {
   verifyUrl: string;
 }
 
-/**
- * Template email verifikasi setelah register.
- * Return { subject, html, text }.
- *
- * Text version PENTING:
- * - Email client yang block HTML akan tampilkan text version.
- * - Spam filter (terutama Gmail) lebih trust email yang punya text version.
- */
 export function verificationEmailTemplate(props: VerificationEmailProps): {
   subject: string;
   html: string;

@@ -1,3 +1,5 @@
+// Uji unit peta kode galat.
+
 import { tentukanKode } from './kode-galat';
 
 describe('tentukanKode', () => {
@@ -6,7 +8,9 @@ describe('tentukanKode', () => {
       code: 'WITHDRAWAL_BELOW_MIN',
       params: { amount: 50000 },
     });
-    expect(tentukanKode(400, 'Saldo tidak cukup. Tersedia: Rp 1.250.000')).toEqual({
+    expect(
+      tentukanKode(400, 'Saldo tidak cukup. Tersedia: Rp 1.250.000'),
+    ).toEqual({
       code: 'WALLET_INSUFFICIENT',
       params: { amount: 1250000 },
     });
@@ -18,10 +22,15 @@ describe('tentukanKode', () => {
   });
 
   it('memakai pesan pertama yang dikenali dari class-validator', () => {
-    expect(tentukanKode(400, ['email must be an email', 'Reason minimal 20 karakter']).code).toBe(
-      'DISPUTE_REASON_TOO_SHORT',
+    expect(
+      tentukanKode(400, [
+        'email must be an email',
+        'Reason minimal 20 karakter',
+      ]).code,
+    ).toBe('DISPUTE_REASON_TOO_SHORT');
+    expect(tentukanKode(400, ['sesuatu yang lain']).code).toBe(
+      'VALIDATION_FAILED',
     );
-    expect(tentukanKode(400, ['sesuatu yang lain']).code).toBe('VALIDATION_FAILED');
   });
 
   it('jatuh ke kode per status untuk pesan yang tidak dikenal', () => {

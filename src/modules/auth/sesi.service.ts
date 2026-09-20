@@ -1,27 +1,9 @@
+// Pengelola sesi aktif pengguna.
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import * as crypto from 'crypto';
 
-/**
- * SesiService — refresh token yang bisa dicabut, tanpa tabel baru.
- *
- * Sebelumnya refresh token adalah JWT stateless 30 hari: logout hanya
- * mengembalikan pesan, jadi token yang dicuri tetap berlaku sampai kedaluwarsa.
- *
- * Sekarang setiap refresh token membawa `jti` acak. Hash-nya disimpan di
- * `verification_tokens` dengan type `refresh_session` (tabel yang sudah ada
- * untuk token email, dengan kolom hash, kedaluwarsa, dan used_at yang pas).
- *
- * - Refresh: baris harus ada, belum dipakai, belum kedaluwarsa. Baris lama
- *   ditandai dipakai dan sesi baru dibuat (rotasi), jadi satu refresh token
- *   hanya berlaku sekali.
- * - Logout: baris sesi itu ditandai dipakai.
- * - Ganti atau reset kata sandi, pembekuan, hapus akun: semua sesi pengguna
- *   dicabut.
- *
- * Access token tetap stateless (TTL 60 menit), jadi paling lama berlaku satu
- * jam setelah sesi dicabut.
- */
 export const TIPE_SESI = 'refresh_session';
 
 @Injectable()
@@ -48,7 +30,6 @@ export class SesiService {
     return jti;
   }
 
-  /** Tandai sesi dipakai. true bila sesi masih berlaku sebelum dipanggil. */
   async pakai(jti: string, userId: string): Promise<boolean> {
     const res = await this.prisma.verification_tokens.updateMany({
       where: {

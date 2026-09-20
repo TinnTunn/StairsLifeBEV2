@@ -1,3 +1,5 @@
+// DTO perubahan data akun.
+
 import {
   IsEmail,
   IsNotEmpty,
@@ -8,7 +10,6 @@ import {
 } from 'class-validator';
 
 export class GantiPasswordDto {
-  /** Kosong hanya untuk akun yang belum pernah punya kata sandi. */
   @IsOptional()
   @IsString()
   @MaxLength(128)

@@ -1,6 +1,7 @@
+// Templat surel konfirmasi perubahan alamat email.
+
 import { htmlLayout, ctaButton, escapeHtml } from './layout';
 
-/** Dikirim ke alamat BARU: membuktikan pemilik akun menguasai alamat itu. */
 export function emailChangeTemplate(props: {
   fullName: string;
   newEmail: string;
@@ -47,7 +48,6 @@ Tim StairsLife
   };
 }
 
-/** Dikirim ke alamat LAMA setelah penggantian berhasil. */
 export function emailChangedNoticeTemplate(props: {
   fullName: string;
   newEmail: string;

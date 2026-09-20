@@ -1,13 +1,12 @@
+// Endpoint autentikasi: daftar, masuk, dan pemulihan kata sandi.
+
 import {
   Controller,
   Post,
-  Get,
   Body,
-  Query,
   HttpCode,
   HttpStatus,
   Req,
-  BadRequestException,
 } from '@nestjs/common';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -25,10 +24,6 @@ import { SuspendedAppealDto } from './dto/suspended-appeal.dto';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
-
-  // ====================================================
-  // REGISTER & LOGIN
-  // ====================================================
 
   @Post('register')
   @Throttle({
@@ -72,19 +67,6 @@ export class AuthController {
     return this.authService.logout(body?.refresh_token);
   }
 
-  // ====================================================
-  // EMAIL VERIFICATION
-  // ====================================================
-
-  /**
-   * POST /auth/verify-email
-   * Body: { token }
-   *
-   * Dipanggil saat user klik link di email verification.
-   * Token mentah dikirim, di-hash di service, lookup di DB.
-   *
-   * Throttle ketat — endpoint ini target favorit untuk token brute-force.
-   */
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
   @Throttle({
@@ -95,13 +77,6 @@ export class AuthController {
     return this.authService.verifyEmail(dto.token);
   }
 
-  /**
-   * POST /auth/resend-verification
-   * Body: { email }
-   *
-   * Resend email verifikasi. Throttle ketat (3/menit per IP).
-   * Tidak bocorkan apakah email terdaftar — selalu return sukses.
-   */
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
   @Throttle({
@@ -118,17 +93,6 @@ export class AuthController {
     });
   }
 
-  // ====================================================
-  // PASSWORD RESET
-  // ====================================================
-
-  /**
-   * POST /auth/forgot-password
-   * Body: { email }
-   *
-   * Trigger reset password — kirim email berisi link reset.
-   * Response selalu sukses (jangan bocorkan email exists).
-   */
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({
@@ -142,12 +106,6 @@ export class AuthController {
     });
   }
 
-  /**
-   * POST /auth/reset-password
-   * Body: { token, new_password }
-   *
-   * Konsumsi token dari email → set password baru.
-   */
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({
@@ -158,17 +116,6 @@ export class AuthController {
     return this.authService.resetPassword(dto.token, dto.new_password);
   }
 
-  // ====================================================
-  // SUSPENSION APPEAL (publik — suspended user belum punya token)
-  // ====================================================
-
-  /**
-   * POST /auth/suspended-appeal
-   * Body: { email, message }
-   *
-   * User yang akunnya disuspend (login diblokir) kirim banding/konsultasi ke
-   * admin. Throttle ketat. Selalu balas generik (anti enumeration).
-   */
   @Post('suspended-appeal')
   @HttpCode(HttpStatus.OK)
   @Throttle({

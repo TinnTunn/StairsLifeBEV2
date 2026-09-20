@@ -1,3 +1,5 @@
+// Endpoint sengketa.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { DisputesService } from './disputes.service';
@@ -20,13 +22,11 @@ export class DisputesController {
     return this.disputesService.getMy(user.id);
   }
 
-  // GET /api/v1/disputes/:id — detail sengketa
   @Get(':id')
   getById(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.disputesService.getById(id, user.id);
   }
 
-  // POST /api/v1/disputes/:id/evidence — tambah bukti tambahan ke dispute
   @Post(':id/evidence')
   addEvidence(
     @Param('id') id: string,

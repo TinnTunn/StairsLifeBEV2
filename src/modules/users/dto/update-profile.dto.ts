@@ -1,3 +1,5 @@
+// DTO perubahan profil.
+
 import {
   IsString,
   IsOptional,
@@ -17,7 +19,6 @@ export class UpdateProfileDto {
   @IsString()
   bio?: string;
 
-  // Profil mahasiswa
   @IsOptional()
   @IsString()
   university?: string;
@@ -38,12 +39,9 @@ export class UpdateProfileDto {
   skills?: string[];
 
   @IsOptional()
-  // Izinkan URL tanpa protokol (instagram.com/foo) — FE akan auto-prefix https://
-  // sebelum kirim, tapi validator harus tetap menerima yang sudah valid.
   @IsUrl({ require_protocol: false, require_tld: true })
   portfolio_url?: string;
 
-  // Profil bisnis
   @IsOptional()
   @IsString()
   phone?: string;
@@ -60,7 +58,6 @@ export class UpdateProfileDto {
   @IsString()
   location?: string;
 
-  // Avatar (bisa dipakai mahasiswa maupun bisnis)
   @IsOptional()
   @IsString()
   avatar_url?: string;

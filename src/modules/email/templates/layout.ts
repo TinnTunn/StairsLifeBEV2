@@ -1,12 +1,4 @@
-/**
- * Layout dasar untuk semua email transactional.
- *
- * Kenapa inline CSS:
- * - Email client (Gmail, Outlook) banyak yang strip <style> tags.
- * - Inline CSS adalah satu-satunya cara yang reliable.
- *
- * Width 600px = sweet spot untuk email rendering di semua client.
- */
+// Kerangka HTML bersama seluruh surel.
 
 export function htmlLayout(args: { title: string; bodyHtml: string }): string {
   return `<!DOCTYPE html>
@@ -53,9 +45,6 @@ export function htmlLayout(args: { title: string; bodyHtml: string }): string {
 </html>`;
 }
 
-/**
- * Helper untuk button CTA — konsisten di semua email.
- */
 export function ctaButton(args: { url: string; label: string }): string {
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0">
@@ -70,10 +59,6 @@ export function ctaButton(args: { url: string; label: string }): string {
   </table>`;
 }
 
-/**
- * Escape user-supplied content untuk dipasang di HTML email.
- * Penting: nama user bisa berisi `<script>` atau quote.
- */
 export function escapeHtml(s: string): string {
   return String(s ?? '').replace(
     /[&<>"']/g,

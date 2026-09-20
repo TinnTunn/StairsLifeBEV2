@@ -1,3 +1,5 @@
+// Endpoint pengguna, profil publik, portofolio, dan verifikasi.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -35,10 +37,6 @@ export class UsersController {
     return this.usersService.updateProfile(user.id, dto);
   }
 
-  /* Verifikasi KTM hanya milik mahasiswa. Tanpa penjaga peran, akun bisnis
-     yang sudah masuk bisa membuat baris verifikasi untuk dirinya sendiri
-     berisi kampus dan nomor induk karangan. Barisnya tidak pernah muncul di
-     antrean moderasi admin, jadi datanya hanya mengendap tanpa bisa ditindak. */
   @Post('me/verification')
   @UseGuards(RolesGuard)
   @Roles('mahasiswa')
@@ -56,24 +54,11 @@ export class UsersController {
     return this.usersService.getVerificationStatus(user.id);
   }
 
-  /**
-   * GET /users/:id — public profile.
-   * Dipakai untuk melihat profile pihak lain (mahasiswa lihat bisnis, dst)
-   * lengkap dengan rating & reviews. Tetap perlu login (auth guard di class level).
-   */
   @Get(':id')
   async getPublicProfile(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.getPublicProfile(id);
   }
 
-  /**
-   * GET /users/:id/portfolio — auto-portfolio dari completed contracts.
-   * Bukan upload manual: berisi semua project yang sudah selesai user
-   * sebagai mahasiswa, dengan info klien, kategori, rating yang didapat.
-   *
-   * Pakai pattern yang sama dengan getPublicProfile — endpoint :id (public),
-   * dan me/portfolio (private alias untuk current user).
-   */
   @Get(':id/portfolio')
   async getUserPortfolio(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.getUserPortfolio(id);

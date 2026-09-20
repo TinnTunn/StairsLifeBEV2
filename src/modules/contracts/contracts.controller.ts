@@ -1,3 +1,5 @@
+// Endpoint kontrak dan hasil kerja.
+
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
   Controller,
@@ -69,7 +71,11 @@ export class ContractsController {
     @CurrentUser() user: JwtUser,
     @Body() body: ReviewDeliverableDto,
   ) {
-    return this.contractsService.approveDeliverable(id, user.id, body?.deliverable_id);
+    return this.contractsService.approveDeliverable(
+      id,
+      user.id,
+      body?.deliverable_id,
+    );
   }
 
   @Patch(':id/reject')

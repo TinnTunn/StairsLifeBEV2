@@ -1,3 +1,5 @@
+// Penjaga peran pengguna.
+
 import {
   Injectable,
   CanActivate,
@@ -18,7 +20,6 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    // Kalau tidak ada @Roles() requirement → allow semua authenticated user
     if (!requiredRoles) return true;
 
     const request = context

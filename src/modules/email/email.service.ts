@@ -1,3 +1,5 @@
+// Pengirim surel lewat Resend.
+
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
@@ -9,20 +11,6 @@ import {
   emailChangedNoticeTemplate,
 } from './templates/email-change.template';
 
-/**
- * EmailService — wrapper di atas Resend SDK.
- *
- * Filosofi:
- * - Service ini provider-agnostic dari sisi caller. Service lain
- *   memanggil `sendVerificationEmail(email, link)` — tidak tahu Resend.
- *   Kalau suatu hari kita ganti ke SendGrid/Brevo, cuma file ini berubah.
- * - Email TEMPLATE dipisah ke file sendiri (lihat folder templates/).
- *   Setiap template export function `(props) => { subject, html, text }`.
- * - Mengirim email TIDAK BLOCK request user. Caller pakai `void emailService.send(...)`
- *   atau `.catch(log)`. Email gagal kirim TIDAK boleh bikin register gagal.
- * - Untuk dev tanpa RESEND_API_KEY: log ke console saja. Aplikasi
- *   tetap jalan (developer experience).
- */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -54,11 +42,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Kirim email verifikasi setelah register.
-   * Link berisi token mentah (bukan hash). User klik → handler `/auth/verify-email`
-   * akan hash & lookup di DB.
-   */
   async sendVerificationEmail(args: {
     to: string;
     fullName: string;
@@ -79,9 +62,6 @@ export class EmailService {
     });
   }
 
-  /**
-   * Kirim email password reset. Token expires 1 jam.
-   */
   async sendPasswordResetEmail(args: {
     to: string;
     fullName: string;
@@ -102,7 +82,6 @@ export class EmailService {
     });
   }
 
-  /** Link konfirmasi ke alamat email baru. Rute frontend: /konfirmasi-email. */
   async sendEmailChangeEmail(args: {
     to: string;
     fullName: string;
@@ -114,10 +93,15 @@ export class EmailService {
       newEmail: args.to,
       confirmUrl,
     });
-    return this._send({ to: args.to, subject, html, text, tag: 'email_change' });
+    return this._send({
+      to: args.to,
+      subject,
+      html,
+      text,
+      tag: 'email_change',
+    });
   }
 
-  /** Pemberitahuan ke alamat lama bahwa email akun sudah diganti. */
   async sendEmailChangedNotice(args: {
     to: string;
     fullName: string;
@@ -127,13 +111,15 @@ export class EmailService {
       fullName: args.fullName,
       newEmail: args.newEmail,
     });
-    return this._send({ to: args.to, subject, html, text, tag: 'email_changed' });
+    return this._send({
+      to: args.to,
+      subject,
+      html,
+      text,
+      tag: 'email_changed',
+    });
   }
 
-  /**
-   * Welcome email setelah verifikasi sukses.
-   * Opsional — call dari handler verify-email.
-   */
   async sendWelcomeEmail(args: {
     to: string;
     fullName: string;
@@ -154,10 +140,6 @@ export class EmailService {
     });
   }
 
-  /**
-   * Low-level send. Tidak throw — error di-log saja.
-   * Caller bisa await tapi sebaiknya void / fire-and-forget.
-   */
   private async _send(args: {
     to: string;
     subject: string;
@@ -179,7 +161,6 @@ export class EmailService {
         subject: args.subject,
         html: args.html,
         text: args.text,
-        // Resend "tags" untuk analytics di dashboard (opsional)
         tags: args.tag ? [{ name: 'category', value: args.tag }] : undefined,
       });
 
@@ -195,7 +176,6 @@ export class EmailService {
         `📧 Email terkirim ke ${args.to} | Subject: ${args.subject} | id=${data?.id}`,
       );
     } catch (err: any) {
-      // Network error, dst — jangan re-throw.
       this.logger.error(
         `Exception saat kirim email ke ${args.to}: ${err.message}`,
         err,

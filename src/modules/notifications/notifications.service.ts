@@ -1,3 +1,5 @@
+// Logika pembuatan dan pembacaan notifikasi.
+
 import {
   Injectable,
   NotFoundException,
@@ -7,11 +9,6 @@ import {
 import { PrismaService } from '../../config/prisma.service';
 import { NotificationsGateway } from './notifications.gateway';
 
-/**
- * Payload untuk membuat notifikasi baru.
- * Dipanggil dari service lain (ApplicationsService, ContractsService, dll)
- * lewat NotificationsService.create().
- */
 export interface CreateNotificationPayload {
   user_id: string;
   type:
@@ -32,18 +29,10 @@ export interface CreateNotificationPayload {
 export class NotificationsService {
   constructor(
     private prisma: PrismaService,
-    // forwardRef karena Gateway juga inject Service untuk akses metode mark/get
-    // (tidak strictly perlu kalau Gateway hanya consume Service, tapi defensive).
     @Inject(forwardRef(() => NotificationsGateway))
     private gateway: NotificationsGateway,
   ) {}
 
-  /**
-   * Inti dari sistem notif persisten.
-   * Service lain panggil ini untuk menyimpan notif + push real-time.
-   * Pemanggilan TIDAK fatal: kalau DB atau WS gagal, log warning saja
-   * supaya operasi utama (mis. update kontrak) tidak ikut gagal.
-   */
   async create(payload: CreateNotificationPayload) {
     try {
       const notif = await this.prisma.notifications.create({
@@ -57,12 +46,9 @@ export class NotificationsService {
         },
       });
 
-      // Push real-time via WebSocket. Kalau user offline, notif tetap
-      // tersimpan di DB dan akan ke-load saat user buka app.
       try {
         await this.gateway.pushToUser(payload.user_id, notif);
       } catch (wsErr) {
-        // WS error tidak fatal — notif sudah di DB, FE bisa polling.
         console.warn(
           '[NotificationsService] WS push gagal untuk',
           payload.user_id,
@@ -72,8 +58,6 @@ export class NotificationsService {
 
       return notif;
     } catch (err) {
-      // DB error juga tidak fatal — log dan return null.
-      // Service caller bisa cek hasilnya tapi tidak wajib.
       console.warn(
         '[NotificationsService] gagal create notif:',
         (err as Error).message,
@@ -82,10 +66,6 @@ export class NotificationsService {
     }
   }
 
-  /**
-   * Convenience: kirim notif ke banyak user sekaligus.
-   * Dipakai untuk pengumuman / event yang affect beberapa orang.
-   */
   async createBulk(
     userIds: string[],
     payload: Omit<CreateNotificationPayload, 'user_id'>,
@@ -113,7 +93,6 @@ export class NotificationsService {
   }
 
   async markRead(notifId: string, userId: string) {
-    // Cek ownership — user hanya bisa mark notif miliknya sendiri
     const existing = await this.prisma.notifications.findUnique({
       where: { id: notifId },
     });
@@ -124,7 +103,6 @@ export class NotificationsService {
       throw new NotFoundException('Notifikasi tidak ditemukan');
     }
 
-    // Idempotent — kalau sudah read, balikan apa adanya
     if (existing.is_read) {
       return { data: existing, message: 'Berhasil' };
     }
@@ -134,7 +112,6 @@ export class NotificationsService {
       data: { is_read: true, read_at: new Date() },
     });
 
-    // Push update count ke user
     try {
       const { data } = await this.getUnreadCount(userId);
       await this.gateway.pushUnreadCount(userId, data.count);
@@ -159,9 +136,6 @@ export class NotificationsService {
     };
   }
 
-  /**
-   * Hapus notif (user-initiated). Jarang dipakai tapi ada untuk lengkap.
-   */
   async delete(notifId: string, userId: string) {
     const existing = await this.prisma.notifications.findUnique({
       where: { id: notifId },

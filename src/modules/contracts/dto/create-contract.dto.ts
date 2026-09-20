@@ -1,3 +1,5 @@
+// DTO pembuatan kontrak.
+
 import { IsUUID, IsNumber, IsDateString, Min } from 'class-validator';
 
 export class CreateContractDto {

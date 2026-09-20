@@ -1,3 +1,5 @@
+// Strategi Passport untuk memeriksa token JWT.
+
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
@@ -25,9 +27,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: JwtPayload & { type?: string }): JwtUser {
-    // Refresh token tidak boleh dipakai untuk authentication ke endpoint biasa.
-    // Hanya endpoint /auth/refresh yang menerima refresh token (via body, bukan
-    // via Authorization header).
     if (payload.type === 'refresh') {
       throw new UnauthorizedException(
         'Refresh token tidak bisa dipakai untuk akses endpoint',

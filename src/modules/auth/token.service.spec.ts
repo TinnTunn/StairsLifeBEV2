@@ -1,4 +1,5 @@
-/// <reference types="jest" />
+// Uji unit layanan token.
+
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { TokenService, durasiMs } from './token.service';

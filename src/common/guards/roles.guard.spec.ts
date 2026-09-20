@@ -1,9 +1,9 @@
-/// <reference types="jest" />
+// Uji unit penjaga peran.
+
 import { ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard';
 
-/** Fake ExecutionContext minimal untuk RolesGuard. */
 function ctxWith(user: any): any {
   return {
     switchToHttp: () => ({ getRequest: () => ({ user }) }),

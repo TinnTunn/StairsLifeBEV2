@@ -1,3 +1,5 @@
+// Endpoint pengaturan akun pengguna yang sudah masuk.
+
 import {
   Body,
   Controller,
@@ -21,48 +23,60 @@ import {
   KonfirmasiEmailDto,
 } from './dto/akun.dto';
 
-/** Keamanan akun. Throttle ketat karena setiap endpoint memeriksa kata sandi. */
 @Controller('account')
 export class AkunController {
   constructor(private readonly akun: AkunService) {}
 
-  // PATCH /api/v1/account/password
   @Patch('password')
   @UseGuards(JwtAuthGuard)
-  @Throttle({ short: { ttl: 60_000, limit: 5 }, medium: { ttl: 60_000, limit: 5 } })
+  @Throttle({
+    short: { ttl: 60_000, limit: 5 },
+    medium: { ttl: 60_000, limit: 5 },
+  })
   gantiPassword(
     @CurrentUser() user: JwtUser,
     @Body() dto: GantiPasswordDto,
     @Req() req: Request,
   ) {
-    return this.akun.gantiPassword(user.id, dto.current_password, dto.new_password, {
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-    });
+    return this.akun.gantiPassword(
+      user.id,
+      dto.current_password,
+      dto.new_password,
+      {
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      },
+    );
   }
 
-  // POST /api/v1/account/email
   @Post('email')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
-  @Throttle({ short: { ttl: 60_000, limit: 3 }, medium: { ttl: 60_000, limit: 3 } })
+  @Throttle({
+    short: { ttl: 60_000, limit: 3 },
+    medium: { ttl: 60_000, limit: 3 },
+  })
   mintaGantiEmail(@CurrentUser() user: JwtUser, @Body() dto: GantiEmailDto) {
     return this.akun.mintaGantiEmail(user.id, dto.new_email, dto.password);
   }
 
-  // POST /api/v1/account/email/confirm — publik, token dari email
   @Post('email/confirm')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ short: { ttl: 60_000, limit: 10 }, medium: { ttl: 60_000, limit: 10 } })
+  @Throttle({
+    short: { ttl: 60_000, limit: 10 },
+    medium: { ttl: 60_000, limit: 10 },
+  })
   konfirmasiEmail(@Body() dto: KonfirmasiEmailDto) {
     return this.akun.konfirmasiGantiEmail(dto.token);
   }
 
-  // POST /api/v1/account/delete
   @Post('delete')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
-  @Throttle({ short: { ttl: 60_000, limit: 3 }, medium: { ttl: 60_000, limit: 3 } })
+  @Throttle({
+    short: { ttl: 60_000, limit: 3 },
+    medium: { ttl: 60_000, limit: 3 },
+  })
   hapus(@CurrentUser() user: JwtUser, @Body() dto: HapusAkunDto) {
     return this.akun.hapusAkun(user.id, dto.password, dto.reason);
   }

@@ -1,3 +1,5 @@
+// Logika lamaran: kirim, terima, tolak, dan penutupan proyek.
+
 import {
   Injectable,
   NotFoundException,
@@ -24,18 +26,15 @@ export class ApplicationsService {
   ) {}
 
   async applyToProject(dto: CreateApplicationDto, studentId: string) {
-    // Cek project ada
     const project = await this.projectsRepository.findById(dto.project_id);
     if (!project) {
       throw new NotFoundException('Project tidak ditemukan');
     }
 
-    // Cek project masih open
     if (project.status !== 'open') {
       throw new BadRequestException('Project sudah tidak menerima lamaran');
     }
 
-    // Cek sudah pernah melamar
     const existing = await this.applicationsRepository.findByProjectAndStudent(
       dto.project_id,
       studentId,
@@ -44,13 +43,6 @@ export class ApplicationsService {
       throw new ConflictException('Kamu sudah pernah melamar project ini');
     }
 
-    // Buat lamaran + increment applicant_count secara atomik dalam transaksi.
-    // Sebelumnya read-then-write via Supabase → race condition kalau dua
-    // mahasiswa apply bersamaan, salah satu update bisa lost.
-    //
-    // Catatan: estimated_completion di-konversi dari string (ISO date) ke Date
-    // karena schema Prisma menggunakan @db.Date — kalau dikirim sebagai string
-    // akan ditolak Prisma.
     const payload = {
       project_id: dto.project_id,
       student_id: studentId,
@@ -68,7 +60,6 @@ export class ApplicationsService {
       }),
     ]);
 
-    // Notif ke bisnis: ada lamaran baru
     const student = await this.prisma.users.findUnique({
       where: { id: studentId },
       select: { full_name: true },
@@ -92,7 +83,6 @@ export class ApplicationsService {
   }
 
   async getProjectApplications(projectId: string, businessId: string) {
-    // Cek project milik bisnis ini
     const project = await this.projectsRepository.findById(projectId);
     if (!project) {
       throw new NotFoundException('Project tidak ditemukan');
@@ -112,7 +102,6 @@ export class ApplicationsService {
       throw new NotFoundException('Lamaran tidak ditemukan');
     }
 
-    // Hanya mahasiswa pelamar atau bisnis pemilik project yang bisa lihat
     const project = await this.projectsRepository.findById(
       application.project_id,
     );
@@ -127,7 +116,6 @@ export class ApplicationsService {
     return { data: application, message: 'Berhasil' };
   }
 
-  // Mahasiswa membatalkan lamarannya sendiri (hanya kalau belum diputus).
   async withdrawApplication(id: string, studentId: string) {
     const application = await this.applicationsRepository.findById(id);
     if (!application) {
@@ -155,17 +143,14 @@ export class ApplicationsService {
     dto: UpdateApplicationStatusDto,
     businessId: string,
   ) {
-    // Cek lamaran ada
     const application = await this.applicationsRepository.findById(id);
     if (!application) {
       throw new NotFoundException('Lamaran tidak ditemukan');
     }
 
-    // Cek project milik bisnis ini
     const project = await this.projectsRepository.findById(
       application.project_id,
     );
-    // Guard null — project bisa hilang karena cascade delete atau race.
     if (!project) {
       throw new NotFoundException(
         'Project untuk lamaran ini tidak ditemukan (mungkin sudah dihapus)',
@@ -175,12 +160,8 @@ export class ApplicationsService {
       throw new ForbiddenException('Kamu tidak punya akses ke lamaran ini');
     }
 
-    // Cek status lama vs baru — jangan notif kalau sama (idempotent re-approve)
     const previousStatus = application.status;
 
-    // Integritas "1 project = 1 mahasiswa": cegah approve lamaran LAIN saat
-    // project sudah punya kontrak (kandidat terpilih). Re-approve lamaran yang
-    // SAMA (kontrak sudah dibuat untuk lamaran ini) tetap diizinkan (idempotent).
     if (dto.status === 'approved' && previousStatus !== 'approved') {
       const existingContract = await this.prisma.contracts.findFirst({
         where: { project_id: application.project_id },
@@ -198,27 +179,8 @@ export class ApplicationsService {
       dto.status,
     );
 
-    // ── AUTO-REJECT lamaran lain saat 1 lamaran di-approve ──
-    // Aturan bisnis: satu project hanya boleh punya 1 mahasiswa yang dipilih.
-    // Saat bisnis terima 1 lamaran, lamaran lain yang masih 'pending' atau
-    // 'shortlisted' otomatis ditolak dengan alasan jelas. Ini menghindari:
-    //   - Mahasiswa lain menunggu tanpa kepastian
-    //   - Bisnis lupa menolak satu-satu manual
-    //   - Race condition kalau 2 lamaran di-approve hampir bersamaan
-    //
-    // Kita hanya auto-reject saat transisi pending/shortlisted → approved.
-    // Re-approve (approved → approved) tidak trigger ulang.
     let autoRejectedCount = 0;
     if (dto.status === 'approved' && previousStatus !== 'approved') {
-      // Project ditutup dari lamaran baru begitu satu pelamar diterima.
-      //
-      // Sebelumnya status baru berubah saat kontrak dibuat, padahal menerima
-      // pelamar sudah menolak semua pelamar lain. Di sela antara keduanya,
-      // project masih muncul di daftar publik dan masih bisa dilamar
-      // mahasiswa lain, yang lalu langsung ditolak begitu bisnis membuka
-      // halaman pelamar. Guard di applyToProject sudah menolak project yang
-      // statusnya bukan open, jadi satu perubahan status ini cukup untuk
-      // menutup keduanya sekaligus.
       await this.prisma.projects.update({
         where: { id: application.project_id },
         data: { status: 'inProgress' as any },
@@ -234,7 +196,6 @@ export class ApplicationsService {
       });
 
       if (otherApps.length > 0) {
-        // Bulk update status — atomic, lebih cepat dari loop
         await this.prisma.applications.updateMany({
           where: {
             id: { in: otherApps.map((a) => a.id) },
@@ -243,11 +204,6 @@ export class ApplicationsService {
         });
         autoRejectedCount = otherApps.length;
 
-        // Kirim notif ke setiap mahasiswa yang otomatis di-reject.
-        // Alasannya jelas: bukan karena CV mereka buruk, tapi karena
-        // bisnis sudah memilih kandidat lain. Ini penting untuk UX
-        // — mahasiswa tidak merasa "ditolak personal".
-        // createBulk(userIds, payload) — payload sama untuk semua user.
         const rejectReason = `Bisnis sudah memilih kandidat lain untuk project "${project.title}". Tetap semangat, masih banyak project lain! 💪`;
         await this.notificationsService.createBulk(
           otherApps.map((a) => a.student_id),
@@ -261,7 +217,6 @@ export class ApplicationsService {
       }
     }
 
-    // Notif ke mahasiswa kalau status berubah
     if (previousStatus !== dto.status) {
       if (dto.status === 'approved') {
         void this.notificationsService.create({

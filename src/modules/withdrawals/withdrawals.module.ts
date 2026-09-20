@@ -1,3 +1,5 @@
+// Modul penarikan dana.
+
 import { Module } from '@nestjs/common';
 import { WithdrawalsController } from './withdrawals.controller';
 import { WithdrawalsService } from './withdrawals.service';

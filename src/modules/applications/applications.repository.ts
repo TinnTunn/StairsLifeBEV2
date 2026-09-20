@@ -1,3 +1,5 @@
+// Akses basis data lamaran.
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 
@@ -33,8 +35,6 @@ export class ApplicationsRepository {
             },
           },
         },
-        // Include kontrak supaya frontend bisa show tombol "Lihat Kontrak"
-        // dengan ID konkret (tanpa fallback ke endpoint terpisah).
         contracts: {
           select: { id: true, status: true },
           take: 1,
@@ -60,10 +60,6 @@ export class ApplicationsRepository {
             skills: true,
           },
         },
-        // Tanpa ini, kartu pelamar tidak pernah tahu kontraknya sudah dibuat,
-        // jadi lamaran yang sudah diterima tetap menawarkan "Buat kontrak"
-        // padahal kontraknya ada. Bentuknya disamakan dengan findByStudentId
-        // supaya kedua sisi membaca bidang yang sama.
         contracts: {
           select: { id: true, status: true },
         },

@@ -1,3 +1,5 @@
+// DTO pendaftaran rekening bank.
+
 import {
   IsString,
   IsNotEmpty,
@@ -13,10 +15,6 @@ export class CreateBankAccountDto {
   @Length(2, 100)
   bank_name: string;
 
-  /**
-   * Kode bank Xendit (uppercase). Contoh: "BCA", "BNI", "MANDIRI", "BRI",
-   * "CIMB", "PERMATA", "BSI". Daftar lengkap di Xendit docs.
-   */
   @IsString()
   @IsNotEmpty()
   @Matches(/^[A-Z0-9_]{2,20}$/, {

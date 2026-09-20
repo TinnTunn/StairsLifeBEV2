@@ -1,3 +1,5 @@
+// DTO pendaftaran akun.
+
 import {
   IsEmail,
   IsEnum,
@@ -11,16 +13,6 @@ import {
   MaxLength,
 } from 'class-validator';
 
-/**
- * Role yang BOLEH dipilih lewat endpoint register publik.
- *
- * Sebelumnya enum ini juga berisi ADMIN — siapa pun bisa POST
- * /auth/register dengan `"role": "admin"` dan langsung punya akses
- * admin (privilege escalation kritis).
- *
- * Admin harus dibuat lewat jalur khusus (seed script / migration),
- * BUKAN lewat register publik.
- */
 export enum PublicUserRole {
   STUDENT = 'mahasiswa',
   BUSINESS = 'bisnis',
@@ -44,7 +36,6 @@ export class RegisterDto {
   })
   role: PublicUserRole;
 
-  // Field opsional untuk profil mahasiswa
   @IsOptional()
   @IsString()
   university?: string;
@@ -59,7 +50,6 @@ export class RegisterDto {
   @Max(14)
   semester?: number;
 
-  // Field opsional untuk profil bisnis
   @IsOptional()
   @IsString()
   phone?: string;

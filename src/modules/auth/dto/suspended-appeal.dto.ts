@@ -1,9 +1,7 @@
+// DTO banding akun yang ditangguhkan.
+
 import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
 
-/**
- * DTO untuk POST /auth/suspended-appeal — user yang akunnya disuspend
- * (tidak bisa login) mengirim banding/konsultasi ke admin.
- */
 export class SuspendedAppealDto {
   @IsEmail()
   email: string;

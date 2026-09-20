@@ -1,3 +1,5 @@
+// Akses basis data proyek.
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { FilterProjectDto } from './dto/filter-project.dto';
@@ -48,12 +50,6 @@ export class ProjectsRepository {
     });
   }
 
-  /**
-   * Cari project identik dari business yang sama yang dibuat
-   * dalam window waktu tertentu. Dipakai oleh idempotency guard
-   * di createProject untuk menangkap double-submit accidental.
-   * Kalau tidak ada match, return null — caller boleh proceed create.
-   */
   async findRecentDuplicate(args: {
     businessId: string;
     title: string;

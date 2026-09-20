@@ -1,3 +1,5 @@
+// DTO penyetelan ulang kata sandi.
+
 import { IsString, IsNotEmpty, MinLength, MaxLength } from 'class-validator';
 
 export class ResetPasswordDto {

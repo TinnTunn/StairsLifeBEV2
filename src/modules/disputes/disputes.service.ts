@@ -1,3 +1,5 @@
+// Logika sengketa dan mediasinya.
+
 import {
   Injectable,
   BadRequestException,
@@ -8,10 +10,8 @@ import { PrismaService } from '../../config/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 
-/** Status sengketa yang masih berjalan (admin memakai under_review). */
 export const STATUS_SENGKETA_AKTIF = ['open', 'under_review', 'mediation'];
 
-/** Kontrak yang dananya masih bisa dipengaruhi putusan sengketa. */
 const STATUS_KONTRAK_BISA_DISENGKETAKAN = ['active', 'pending_review'];
 
 @Injectable()
@@ -24,7 +24,6 @@ export class DisputesService {
   async create(userId: string, dto: CreateDisputeDto) {
     const { contract_id, reason, evidence_url } = dto;
 
-    // Pastikan kontrak milik user ini
     const contract = await this.prisma.contracts.findFirst({
       where: {
         id: contract_id,
@@ -36,19 +35,12 @@ export class DisputesService {
     if (!contract) throw new BadRequestException('Kontrak tidak ditemukan');
     if (!STATUS_KONTRAK_BISA_DISENGKETAKAN.includes(String(contract.status))) {
       throw new BadRequestException({
-        message: 'Sengketa hanya bisa diajukan untuk kontrak yang masih berjalan atau menunggu review.',
+        message:
+          'Sengketa hanya bisa diajukan untuk kontrak yang masih berjalan atau menunggu review.',
         code: 'CONTRACT_NOT_DISPUTABLE',
       });
     }
 
-    // GUARD: Cegah dispute ganda untuk kontrak yang sama.
-    // Satu kontrak hanya boleh punya 1 dispute aktif (status 'open' atau
-    // 'mediation'). Kalau ada dispute existing yang masih aktif, return
-    // dispute lama (idempotent) supaya double-click di FE tidak bikin row baru.
-    //
-    // Kalau dispute sebelumnya sudah 'resolved'/'cancelled', user boleh
-    // buka dispute baru — itu use case sah (mis. masalah baru muncul setelah
-    // resolution sebelumnya).
     const existingActive = await this.prisma.disputes.findFirst({
       where: {
         contract_id,
@@ -74,7 +66,6 @@ export class DisputesService {
       },
     });
 
-    // Notif ke pihak lawan (kalau mahasiswa yang buka, notif bisnis; vice versa)
     const otherPartyId =
       userId === contract.student_id
         ? contract.business_id
@@ -94,7 +85,6 @@ export class DisputesService {
       action_url: `/disputes/${dispute.id}`,
     });
 
-    // Notif ke admin (semua user dengan role admin)
     try {
       const admins = await this.prisma.users.findMany({
         where: { role: 'admin' as any },
@@ -118,13 +108,15 @@ export class DisputesService {
   }
 
   async getMy(userId: string) {
-    // Dulu hanya sengketa yang dibuka sendiri. Pihak yang disengketakan juga
-    // perlu melihatnya, kalau tidak ia baru tahu saat dananya sudah diputus.
     const disputes = await this.prisma.disputes.findMany({
       where: {
         OR: [
           { opened_by: userId },
-          { contracts: { OR: [{ student_id: userId }, { business_id: userId }] } },
+          {
+            contracts: {
+              OR: [{ student_id: userId }, { business_id: userId }],
+            },
+          },
         ],
       },
       include: {
@@ -170,7 +162,13 @@ export class DisputesService {
               select: { id: true, full_name: true },
             },
             payments: {
-              select: { id: true, status: true, amount: true, platform_fee: true, net_amount: true },
+              select: {
+                id: true,
+                status: true,
+                amount: true,
+                platform_fee: true,
+                net_amount: true,
+              },
             },
           },
         },
@@ -182,7 +180,6 @@ export class DisputesService {
 
     if (!dispute) throw new NotFoundException('Sengketa tidak ditemukan');
 
-    // Hanya pihak yang terlibat atau yang membuka dispute yang bisa lihat
     const contract = dispute.contracts;
     const isInvolved =
       dispute.opened_by === userId ||
@@ -193,7 +190,6 @@ export class DisputesService {
       throw new ForbiddenException('Kamu tidak punya akses ke sengketa ini');
     }
 
-    // Porsi mahasiswa dari putusan, dicatat di wallet_transactions.
     const bagian = await this.prisma.wallet_transactions.findFirst({
       where: { ref_type: 'dispute', ref_id: id },
       select: { amount: true },
@@ -208,10 +204,6 @@ export class DisputesService {
     };
   }
 
-  /**
-   * Tambah bukti tambahan ke dispute yang sudah ada.
-   * Field evidence_url di-overwrite dengan URL terbaru.
-   */
   async addEvidence(
     id: string,
     body: { evidence_url: string; description?: string },

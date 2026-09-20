@@ -1,3 +1,5 @@
+// Uji unit logika notifikasi.
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsService } from './notifications.service';
 import { NotificationsGateway } from './notifications.gateway';
@@ -10,9 +12,7 @@ describe('NotificationsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
-        // Mock PrismaService — service tidak akan call DB di test
         { provide: PrismaService, useValue: {} },
-        // Mock Gateway — service tidak akan push di test
         {
           provide: NotificationsGateway,
           useValue: { pushToUser: jest.fn(), pushUnreadCount: jest.fn() },

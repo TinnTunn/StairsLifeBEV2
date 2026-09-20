@@ -1,3 +1,5 @@
+// Logika pembayaran, escrow, dan komisi platform.
+
 import {
   Injectable,
   NotFoundException,
@@ -31,8 +33,6 @@ export class PaymentsService {
     private xendit: XenditService,
   ) {}
 
-  // ─── PLATFORM FEE ──────────────────────────────────────────
-
   private async _getPlatformFeePercent(): Promise<number> {
     const now = Date.now();
     if (this._feeCache && this._feeCache.expiresAt > now) {
@@ -64,29 +64,7 @@ export class PaymentsService {
     this._feeCache = null;
   }
 
-  // ─── XENDIT INVOICE FLOW (PRIMARY) ────────────────────────
-
-  /**
-   * Bisnis trigger pembayaran. Backend:
-   *   1. Validate kontrak (ada, bisnis = pemilik)
-   *   2. Cek payment existing — kalau ada & valid, return invoice yang ada
-   *      (idempotent — supaya double-click tidak buat 2 invoice di Xendit)
-   *   3. Hitung fee + net amount
-   *   4. Generate external_id (UUID)
-   *   5. Call Xendit createInvoice
-   *   6. Save payment record dengan status='pending'
-   *   7. Return invoice_url
-   *
-   * Yang penting: payment record di-create DULU dengan status='pending'
-   * supaya kalau Xendit call gagal di tengah, kita tetap punya record
-   * yang bisa di-cleanup. Saat Xendit sukses, baru update dengan
-   * invoice_id + invoice_url.
-   *
-   * Untuk idempotent: cek apakah ada payment dengan status='pending' yang
-   * belum expired untuk kontrak ini. Kalau ada → return existing.
-   */
   async createInvoice(dto: CreateInvoiceDto, businessId: string) {
-    // 1. Validasi kontrak
     const contract = await this.contractsRepository.findById(dto.contract_id);
     if (!contract) {
       throw new NotFoundException('Kontrak tidak ditemukan');
@@ -94,20 +72,16 @@ export class PaymentsService {
     if (contract.business_id !== businessId) {
       throw new ForbiddenException('Hanya pemilik kontrak yang bisa bayar');
     }
-    // Hanya kontrak yang masih berjalan yang boleh ditagih. Mencegah buat
-    // invoice untuk kontrak completed/cancelled/dispute.
     if (!['active', 'pending_review'].includes(String(contract.status))) {
       throw new BadRequestException(
         `Kontrak berstatus ${contract.status} tidak bisa dibayar`,
       );
     }
 
-    // 2. Cek payment existing untuk kontrak ini
     const existing = await this.paymentsRepository.findByContractId(
       dto.contract_id,
     );
     if (existing) {
-      // a. Sudah lunas / held / dst → tolak
       if (
         existing.status === 'held' ||
         existing.status === 'released' ||
@@ -119,7 +93,6 @@ export class PaymentsService {
         );
       }
 
-      // b. Pending & invoice belum expired → return existing (idempotent)
       if (
         existing.status === 'pending' &&
         existing.xendit_invoice_url &&
@@ -139,18 +112,13 @@ export class PaymentsService {
         };
       }
 
-      // c. Expired / failed → hapus record lama supaya bisa retry
-      // (alternatif: update record lama dengan invoice baru — kita pilih
-      //  delete-and-recreate supaya history lebih bersih)
       await this.prisma.payments.delete({ where: { id: existing.id } });
     }
 
-    // 3. Hitung fee
     const feePercent = await this._getPlatformFeePercent();
     const platformFee = Math.round(dto.amount * (feePercent / 100));
     const netAmount = dto.amount - platformFee;
 
-    // 4. Get email bisnis untuk Xendit (Xendit kirim receipt ke email ini)
     const business = await this.prisma.users.findUnique({
       where: { id: businessId },
       select: {
@@ -161,16 +129,11 @@ export class PaymentsService {
     });
     if (!business) throw new NotFoundException('Akun bisnis tidak ditemukan');
 
-    // 5. Get project info untuk description
     const project = await this.prisma.projects.findUnique({
       where: { id: contract.project_id },
       select: { title: true },
     });
 
-    // 6. Buat payment record dulu (status pending, tanpa xendit fields)
-    //    External ID kita generate dari payment id sehingga ID kita ←→ Xendit
-    //    bijektif. Tapi kita perlu ID dulu → insert dulu, lalu generate
-    //    external_id dari uuid yang dihasilkan.
     const tempExternalId = `temp-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 10)}`;
@@ -189,12 +152,10 @@ export class PaymentsService {
       },
     });
 
-    // 7. Build external_id dari payment.id (canonical)
     const externalId = `stairslife-pay-${payment.id}`;
     const duration = dto.invoice_duration ?? DEFAULT_INVOICE_DURATION_SEC;
     const appUrl = process.env.APP_URL || 'http://localhost:5173';
 
-    // 8. Call Xendit
     let invoice;
     try {
       invoice = await this.xendit.createInvoice({
@@ -219,7 +180,6 @@ export class PaymentsService {
         ],
       });
     } catch (e) {
-      // Rollback: hapus payment record kalau Xendit gagal
       await this.prisma.payments
         .delete({ where: { id: payment.id } })
         .catch(() => {
@@ -228,7 +188,6 @@ export class PaymentsService {
       throw e;
     }
 
-    // 9. Update payment record dengan Xendit data
     const updated = await this.prisma.payments.update({
       where: { id: payment.id },
       data: {
@@ -257,28 +216,11 @@ export class PaymentsService {
     };
   }
 
-  // ─── XENDIT WEBHOOK HANDLER ───────────────────────────────
-
-  /**
-   * Dipanggil oleh PaymentsController saat Xendit POST webhook.
-   * Token sudah diverifikasi di controller. Di sini fokus business logic.
-   *
-   * Idempotent: kalau status payment sudah held / released / dll, return
-   * sukses tanpa double-process. Xendit me-retry webhook beberapa kali
-   * sampai dapat 200.
-   *
-   * Catatan tentang Xendit status:
-   *   - PAID    : user sudah bayar, dana sudah sampai ke Xendit
-   *   - SETTLED : dana sudah di-settle ke balance kita (T+1/T+2)
-   *   - EXPIRED : invoice lewat batas waktu
-   * Kita treat PAID dan SETTLED sama (langsung escrow held).
-   */
   async handleXenditInvoiceWebhook(
     payload: XenditInvoiceWebhook,
   ): Promise<{ success: boolean; message: string }> {
     const { id: invoiceId, external_id, status } = payload;
 
-    // Cari payment by xendit_invoice_id (primary) atau external_id (fallback)
     let payment = await this.prisma.payments.findFirst({
       where: { xendit_invoice_id: invoiceId },
     });
@@ -292,12 +234,9 @@ export class PaymentsService {
       this.logger.warn(
         `Webhook untuk invoice ${invoiceId} (ext=${external_id}) tapi payment tidak ditemukan`,
       );
-      // Return success supaya Xendit tidak retry terus — kita assume
-      // ini invoice dari test/dev environment lama.
       return { success: true, message: 'Payment not found, ignored' };
     }
 
-    // Idempotency: status sudah terminal → no-op
     if (
       ['held', 'released', 'refunded', 'split_settled'].includes(
         String(payment.status),
@@ -309,14 +248,11 @@ export class PaymentsService {
       return { success: true, message: 'Already processed' };
     }
 
-    // Process berdasarkan status Xendit
     if (status === 'PAID' || (status as any) === 'SETTLED') {
       await this._markPaymentAsPaid(payment.id, payload);
     } else if (status === 'EXPIRED') {
       await this._markPaymentAsExpired(payment.id, payload);
     } else {
-      // status PENDING di webhook biasanya cuma confirmation pembuatan invoice
-      // — skip, status di DB kita sudah 'pending'.
       this.logger.log(
         `Webhook status=${status} untuk ${invoiceId} — no action`,
       );
@@ -331,9 +267,6 @@ export class PaymentsService {
   ): Promise<void> {
     const paidAt = payload.paid_at ? new Date(payload.paid_at) : new Date();
 
-    // Defense-in-depth: verifikasi nominal yang BENAR-BENAR dibayar tidak
-    // kurang dari yang ditagih. Invoice Xendit ber-nominal tetap, tapi ini
-    // menutup partial-payment / payload yang dimanipulasi.
     const current = await this.prisma.payments.findUnique({
       where: { id: paymentId },
     });
@@ -344,7 +277,6 @@ export class PaymentsService {
       );
       return;
     }
-    // Merge payload lama (dari createInvoice) supaya jejak audit tidak hilang.
     const prevPayload = (current?.xendit_payload as Record<string, any>) || {};
 
     const payment = await this.prisma.payments.update({
@@ -355,7 +287,6 @@ export class PaymentsService {
         held_at: new Date(),
         payment_method: payload.payment_method || null,
         payment_channel: payload.payment_channel || null,
-        // Simpan webhook PAID di kunci terpisah, pertahankan data create.
         xendit_payload: { ...prevPayload, invoice_paid: payload as any } as any,
       },
       include: {
@@ -369,7 +300,6 @@ export class PaymentsService {
       `Payment ${paymentId} marked PAID (method=${payload.payment_method}, channel=${payload.payment_channel})`,
     );
 
-    // Notif ke mahasiswa: dana sudah aman di escrow
     const feePercent = await this._getPlatformFeePercent();
     void this.notificationsService.create({
       user_id: payment.payee_id,
@@ -380,7 +310,6 @@ export class PaymentsService {
       action_url: `/contracts/${payment.contract_id}`,
     });
 
-    // Notif ke bisnis: konfirmasi pembayaran
     void this.notificationsService.create({
       user_id: payment.payer_id,
       type: 'payment',
@@ -415,18 +344,9 @@ export class PaymentsService {
     });
   }
 
-  // ─── LEGACY MANUAL ESCROW (fallback / admin override) ─────
-
-  /**
-   * @deprecated Gunakan createInvoice (Xendit). Method ini dipertahankan
-   * untuk: (a) testing tanpa Xendit, (b) admin override manual saat
-   * Xendit down / bisnis transfer langsung.
-   */
   async holdEscrow(dto: CreatePaymentDto, _adminId: string) {
     const contract = await this.contractsRepository.findById(dto.contract_id);
     if (!contract) throw new NotFoundException('Kontrak tidak ditemukan');
-    // Endpoint @Roles('admin'): payer = pemilik kontrak (bisnis), payee =
-    // mahasiswa. Caller (admin) hanya pemicu override, bukan pembayar.
 
     const existing = await this.paymentsRepository.findByContractId(
       dto.contract_id,
@@ -443,7 +363,6 @@ export class PaymentsService {
     const platformFee = Math.round(dto.amount * (feePercent / 100));
     const netAmount = dto.amount - platformFee;
 
-    // Kalau ada record expired/failed → hapus dulu (idem dengan createInvoice)
     if (existing) {
       await this.prisma.payments.delete({ where: { id: existing.id } });
     }
@@ -476,16 +395,6 @@ export class PaymentsService {
     };
   }
 
-  // ─── RELEASE ESCROW (cair ke saldo mahasiswa) ─────────────
-
-  /**
-   * Cair dari escrow → wallet mahasiswa.
-   * Atomic: update payments.status + tambah ke wallet + log transaction.
-   *
-   * Idempotent: kalau payment sudah released, return sukses tanpa double-add.
-   *
-   * Sekarang juga handle wallet update (sebelumnya tidak ada wallet).
-   */
   async releaseEscrow(paymentId: string, businessId: string) {
     const payment = await this.paymentsRepository.findById(paymentId);
     if (!payment) throw new NotFoundException('Pembayaran tidak ditemukan');
@@ -506,7 +415,6 @@ export class PaymentsService {
       );
     }
 
-    // Selama sengketa berjalan, dana hanya boleh bergerak lewat putusan admin.
     const sengketaAktif = await this.prisma.disputes.count({
       where: {
         contract_id: payment.contract_id,
@@ -515,33 +423,28 @@ export class PaymentsService {
     });
     if (sengketaAktif > 0) {
       throw new BadRequestException({
-        message: 'Kontrak ini sedang dalam sengketa. Dana menunggu putusan admin.',
+        message:
+          'Kontrak ini sedang dalam sengketa. Dana menunggu putusan admin.',
         code: 'DISPUTE_ACTIVE',
       });
     }
 
     const releasedAt = new Date();
     const updated = await this.prisma.$transaction(async (tx) => {
-      // Kunci baris payment & baca status TERKINI di dalam transaksi.
-      // Transaksi konkuren (mis. auto-release approveDeliverable) akan BLOCK
-      // di sini lalu melihat status sudah 'released' → tidak double-credit.
       const rows = await tx.$queryRaw<
         Array<{ status: string; net_amount: number; payee_id: string }>
       >`SELECT status, net_amount, payee_id FROM payments
         WHERE id = ${paymentId}::uuid FOR UPDATE`;
       const row = rows[0];
       if (!row || row.status !== 'held') {
-        // Sudah dirilis pihak lain di antara pengecekan & transaksi — no-op.
         return null;
       }
 
-      // 1. Update payment
       const upd = await tx.payments.update({
         where: { id: paymentId },
         data: { status: 'released', released_at: releasedAt },
       });
 
-      // 2. Update wallet mahasiswa
       await this._addToWallet(tx, row.payee_id, row.net_amount, {
         type: 'earn_release',
         ref_type: 'payment',
@@ -552,7 +455,6 @@ export class PaymentsService {
       return upd;
     });
 
-    // Race terdeteksi di dalam transaksi (sudah dirilis) → kembalikan idempoten.
     if (!updated) {
       return {
         data: payment,
@@ -575,13 +477,6 @@ export class PaymentsService {
     };
   }
 
-  /**
-   * Helper: tambah ke wallet + log transaksi.
-   * Wajib dipanggil di dalam $transaction (tx parameter).
-   *
-   * Kalau wallet user belum ada (mis. user lama yang belum di-backfill),
-   * buat baru. Untuk mahasiswa, ini auto-handles.
-   */
   private async _addToWallet(
     tx: any,
     userId: string,
@@ -598,14 +493,12 @@ export class PaymentsService {
       description?: string;
     },
   ): Promise<void> {
-    // Upsert wallet kalau belum ada
     const wallet = await tx.wallets.upsert({
       where: { user_id: userId },
       update: {},
       create: { user_id: userId },
     });
 
-    // Update saldo
     if (txMeta.type === 'earn_release' || txMeta.type === 'earn_split') {
       await tx.wallets.update({
         where: { id: wallet.id },
@@ -616,7 +509,6 @@ export class PaymentsService {
         },
       });
     } else if (txMeta.type === 'withdrawal_lock') {
-      // amount → pending_amount
       await tx.wallets.update({
         where: { id: wallet.id },
         data: {
@@ -626,7 +518,6 @@ export class PaymentsService {
         },
       });
     } else if (txMeta.type === 'withdrawal_done') {
-      // pending_amount → keluar (total_withdrawn naik)
       await tx.wallets.update({
         where: { id: wallet.id },
         data: {
@@ -636,7 +527,6 @@ export class PaymentsService {
         },
       });
     } else if (txMeta.type === 'withdrawal_refund') {
-      // pending_amount → amount
       await tx.wallets.update({
         where: { id: wallet.id },
         data: {
@@ -647,7 +537,6 @@ export class PaymentsService {
       });
     }
 
-    // Log transaksi
     await tx.wallet_transactions.create({
       data: {
         wallet_id: wallet.id,
@@ -661,12 +550,6 @@ export class PaymentsService {
     });
   }
 
-  /**
-   * Public wrapper untuk dipanggil dari ContractsService.approveDeliverable
-   * (auto-release saat approve) atau dispute resolution.
-   *
-   * Dipanggil di luar $transaction context — buat transaction sendiri.
-   */
   async addToWalletStandalone(
     userId: string,
     amount: number,
@@ -681,8 +564,6 @@ export class PaymentsService {
       await this._addToWallet(tx, userId, amount, txMeta);
     });
   }
-
-  // ─── QUERIES ───────────────────────────────────────────────
 
   async getMyPayments(userId: string) {
     const payments = await this.paymentsRepository.findByUserId(userId);
@@ -702,17 +583,12 @@ export class PaymentsService {
     };
   }
 
-  /**
-   * Cek status payment ke Xendit (fallback kalau webhook miss / dev tanpa
-   * webhook). Dipanggil dari endpoint GET /payments/:id/sync.
-   */
   async syncPaymentWithXendit(paymentId: string, userId: string) {
     const payment = await this.prisma.payments.findUnique({
       where: { id: paymentId },
     });
     if (!payment) throw new NotFoundException('Pembayaran tidak ditemukan');
 
-    // Access control: hanya payer atau payee
     if (payment.payer_id !== userId && payment.payee_id !== userId) {
       throw new ForbiddenException('Tidak punya akses');
     }
@@ -723,7 +599,6 @@ export class PaymentsService {
       );
     }
 
-    // Kalau sudah terminal, tidak perlu sync
     if (
       ['held', 'released', 'refunded', 'split_settled'].includes(
         String(payment.status),
@@ -732,10 +607,8 @@ export class PaymentsService {
       return { data: payment, message: 'Sudah final, tidak perlu sync' };
     }
 
-    // Fetch ke Xendit
     const invoice = await this.xendit.getInvoice(payment.xendit_invoice_id);
 
-    // Simulasi webhook handling
     await this.handleXenditInvoiceWebhook({
       id: invoice.id,
       external_id: invoice.external_id,

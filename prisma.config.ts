@@ -1,3 +1,5 @@
+// Konfigurasi Prisma beserta adapter Postgres.
+
 import path from 'node:path';
 import { defineConfig } from 'prisma/config';
 import * as dotenv from 'dotenv';

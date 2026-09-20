@@ -1,3 +1,5 @@
+// Endpoint penarikan dana beserta webhook disbursement.
+
 import type { Request } from 'express';
 import type { JwtUser } from '../../common/types/jwt-payload.type';
 import {
@@ -36,9 +38,6 @@ export class WithdrawalsController {
     private readonly xendit: XenditService,
   ) {}
 
-  // ─── USER (mahasiswa) ─────────────────────────────────────
-
-  // GET /api/v1/withdrawals/wallet — saldo mahasiswa
   @Get('wallet')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('mahasiswa')
@@ -46,7 +45,6 @@ export class WithdrawalsController {
     return this.withdrawalsService.getWallet(user.id);
   }
 
-  // POST /api/v1/withdrawals — request penarikan
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('mahasiswa')
@@ -54,7 +52,6 @@ export class WithdrawalsController {
     return this.withdrawalsService.create(user.id, dto);
   }
 
-  // GET /api/v1/withdrawals/my
   @Get('my')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('mahasiswa')
@@ -62,9 +59,6 @@ export class WithdrawalsController {
     return this.withdrawalsService.findByUser(user.id);
   }
 
-  // ─── ADMIN ────────────────────────────────────────────────
-
-  // GET /api/v1/withdrawals — list semua untuk admin
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard, IzinAdminGuard)
   @Roles('admin')
@@ -79,7 +73,6 @@ export class WithdrawalsController {
     return this.withdrawalsService.listAll(status, pageNum, limitNum);
   }
 
-  // PATCH /api/v1/withdrawals/:id/process — approve / reject
   @Patch(':id/process')
   @UseGuards(JwtAuthGuard, RolesGuard, IzinAdminGuard)
   @Roles('admin')
@@ -92,9 +85,6 @@ export class WithdrawalsController {
     return this.withdrawalsService.process(id, user.id, dto);
   }
 
-  // ─── XENDIT DISBURSEMENT WEBHOOK ──────────────────────────
-  // POST /api/v1/withdrawals/webhook/xendit
-  // Xendit panggil endpoint ini saat disbursement berubah status.
   @Post('webhook/xendit')
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)

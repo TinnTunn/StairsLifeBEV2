@@ -1,3 +1,5 @@
+// Templat surel sambutan.
+
 import { htmlLayout, ctaButton, escapeHtml } from './layout';
 
 export interface WelcomeEmailProps {
