@@ -1,157 +1,150 @@
-# StairsLife Backend — Production Build v2
+# StairsLife Backend
 
-Backend NestJS lengkap untuk StairsLife: project asli + 20 security
-patches (v1) + Sprint Week 1 (email verification + password reset).
+API untuk StairsLife, marketplace proyek freelance yang mempertemukan mahasiswa
+Indonesia dengan UMKM. Dana klien ditahan di escrow sampai hasil kerja disetujui,
+lalu dilepas ke dompet mahasiswa dikurangi komisi platform.
 
-**Versi**: 2.0.0 (post-audit + sprint week 1)
-**Status**: ready to run untuk dev, siap deploy setelah env di-isi
+Frontendnya ada di repositori terpisah: [StairsLifeFEV2](https://github.com/TinnTunn/StairsLifeFEV2).
 
----
+## Teknologi
 
-## 🚀 Quick Start
+NestJS 11, Prisma 7 dengan adapter Postgres, Supabase untuk basis data dan
+penyimpanan berkas, Xendit untuk invoice dan pencairan dana, Resend untuk email,
+Socket.IO untuk obrolan dan notifikasi waktu nyata. Node 20 ke atas.
+
+## Menjalankan di mesin sendiri
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Copy & isi env
 cp .env.example .env
-# Edit .env — lihat section "Environment Variables" di bawah
+```
 
-# 3. Apply migration ke Supabase
-# Buka Supabase Dashboard → SQL Editor → paste isi:
-#   prisma/migrations/sprint_full_schema.sql
-# Section minggu 1 cukup; minggu 2-4 kerjakan saat sampai sprintnya.
+Isi `.env` mengikuti keterangan di dalamnya. Yang wajib ada sebelum server bisa
+dipakai: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`JWT_SECRET`, dan `JWT_REFRESH_SECRET`.
 
-# 4. Generate Prisma client
-npx prisma generate
+Terapkan skema basis datanya lebih dulu, lihat bagian Migrasi di bawah. Sesudah itu:
 
-# 5. Run dev
+```bash
 npm run start:dev
 ```
 
-Backend jalan di **http://localhost:3000**, prefix API `/api/v1`.
+Server jalan di `http://localhost:3000` dengan prefix `/api/v1`.
 
----
+`GET /api/v1` sendiri mengembalikan 404 karena tidak ada rute akar. Untuk
+memastikan server hidup, pakai `GET /api/v1/settings/public`: tanpa penjaga
+autentikasi dan membaca basis data, jadi statusnya sekaligus membuktikan
+koneksi Supabase bekerja.
 
-## 📋 Environment Variables
+## Migrasi basis data
 
-File `.env.example` sudah berisi semua var untuk 4 minggu sprint.
-Untuk minggu 1, **WAJIB diisi**:
+**Repositori ini tidak memakai `prisma migrate`.** Blok `datasource db` di
+`prisma/schema.prisma` tidak memuat `url`, dan berkas di `prisma/migrations/`
+adalah SQL yang ditulis tangan, bukan keluaran Prisma.
 
-| Variable | Cara dapat | Catatan |
-|---|---|---|
-| `DATABASE_URL` | Supabase Dashboard → Settings → Database | Connection pooler URL |
-| `SUPABASE_URL` | Supabase Dashboard → Settings → API | Project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API | **Service role** key (jangan anon) |
-| `JWT_SECRET` | `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"` | 64+ char random |
-| `JWT_REFRESH_SECRET` | sama caranya, **harus beda dari JWT_SECRET** | defense-in-depth |
-| `RESEND_API_KEY` | https://resend.com → API Keys | start dengan `re_` |
-| `EMAIL_FROM` | `"StairsLife <noreply@yourdomain.com>"` | domain harus verified di Resend |
-| `APP_URL` | `http://localhost:5173` dev, frontend URL prod | dipakai untuk link di email |
+Cara menerapkannya: buka Supabase, masuk ke SQL Editor, tempel isi berkasnya,
+jalankan. Untuk basis data baru mulai dari `sprint_full_schema.sql`.
 
-**Optional**:
-- `GOOGLE_CLIENT_ID` & `GOOGLE_CLIENT_SECRET` — minggu 2
-- `MIDTRANS_SERVER_KEY` & `MIDTRANS_CLIENT_KEY` — minggu 3
-- `FRONTEND_URL` — untuk CORS (multiple origins boleh, pisah koma)
+`dev_clear_chat_history.sql` adalah alat bantu pengembangan yang menghapus
+riwayat obrolan. Jangan dijalankan di produksi.
 
-Lihat `../docs/01-dashboard-setup.md` untuk panduan detail tiap provider.
+Menambahkan `prisma migrate deploy` ke perintah build akan gagal, karena tidak
+ada `url` yang bisa dibacanya.
 
----
+## Struktur
 
-## 🏗️ Yang sudah ada di versi ini
+17 modul di `src/modules`, 109 endpoint:
 
-### Security (dari patches v1)
-- ✅ Privilege escalation block di register (anti `role=admin` injection)
-- ✅ Chat REST endpoint access validation (anti baca chat orang lain)
-- ✅ WebSocket CORS whitelist (anti origin `*`)
-- ✅ JWT access vs refresh secret terpisah
-- ✅ Rate limiting (login 10/min, register 5/min, forgot-pwd 3/min, default 100/min)
-- ✅ Platform fee dibaca dari `platform_settings` (bukan hardcoded)
-- ✅ Dispute resolution dengan financial settlement (refund/release/split)
-- ✅ Null-check `project` di contracts & applications service
+| Modul | Isi |
+|---|---|
+| `auth` | Daftar, masuk, token akses dan penyegar, verifikasi email, atur ulang kata sandi, banding akun |
+| `users` | Profil, portofolio, pengajuan verifikasi mahasiswa |
+| `projects` | Pemasangan proyek, penyaringan, perubahan status |
+| `applications` | Lamaran, penerimaan, penolakan otomatis lamaran lain |
+| `contracts` | Kontrak, hasil kerja, persetujuan, pelepasan dana |
+| `payments` | Invoice Xendit, escrow, komisi platform, webhook |
+| `withdrawals` | Saldo dompet (`GET /withdrawals/wallet`), pengajuan penarikan, pencairan Xendit |
+| `bank-accounts` | Rekening tujuan penarikan |
+| `reviews` | Ulasan dan rata rata penilaian |
+| `disputes` | Sengketa dan mediasinya |
+| `chat` | Obrolan kontrak, tanya jawab, dukungan, penanda dibaca |
+| `notifications` | Notifikasi dalam aplikasi |
+| `admin` | Panel admin, peran dan izin, jejak audit |
+| `settings` | Pengaturan platform seperti komisi dan batas penarikan |
+| `upload` | Unggah berkas ke penyimpanan Supabase |
+| `email` | Pengiriman email lewat Resend |
+| `xendit` | Klien invoice dan pencairan dana |
 
-### Sprint Week 1
-- ✅ EmailService (Resend) + 3 template (verification, password-reset, welcome)
-- ✅ VerificationTokenService (SHA-256 hash, single-use, expires)
-- ✅ Endpoint `/auth/verify-email`
-- ✅ Endpoint `/auth/resend-verification`
-- ✅ Endpoint `/auth/reset-password`
-- ✅ Endpoint `/auth/forgot-password` (sudah ada, sekarang sungguh kirim email)
-- ✅ Schema: `email_verified_at`, `google_id` (untuk minggu 2), `verification_tokens` table
+Di luar itu, `src/common` berisi penjaga peran dan izin, filter galat, serta
+interceptor yang membungkus respons.
 
----
+## Bentuk respons
 
-## 🧪 Smoke Test setelah deploy
+Setiap respons sukses dibungkus seragam:
 
-```bash
-# 1. Health check
-curl http://localhost:3000/api/v1
-
-# 2. Coba register
-curl -X POST http://localhost:3000/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "full_name": "Test User",
-    "email": "test@yourdomain.com",
-    "password": "test12345",
-    "role": "mahasiswa"
-  }'
-
-# 3. Coba privilege escalation block
-curl -X POST http://localhost:3000/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"full_name":"X","email":"x@y.com","password":"12345678","role":"admin"}'
-# Expected: 400 "Role tidak valid"
-
-# 4. Coba rate limit login (jalankan banyak kali cepat)
-# Expected: setelah ~10 request, mulai dapat 429
+```json
+{ "success": true, "data": {}, "message": "Berhasil", "timestamp": "..." }
 ```
 
----
+Respons gagal membawa `statusCode` dan `code` yang stabil, supaya frontend bisa
+memetakannya ke pesan sendiri tanpa mencocokkan teks.
 
-## 📝 Next Sprint (Week 2-4)
+Validasi memakai `forbidNonWhitelisted`, jadi satu field asing dalam badan
+permintaan menghasilkan 400, bukan diabaikan diam diam.
 
-- **Minggu 2**: Google OAuth + profile completion (portfolio, skills)
-- **Minggu 3**: Midtrans payment gateway + wallet
-- **Minggu 4**: Withdrawal + closed beta launch
+## WebSocket
 
-Schema untuk minggu 2-4 sudah ada di `prisma/migrations/sprint_full_schema.sql`.
+Dua namespace, keduanya butuh token JWT saat menyambung:
 
----
+- `/chat` untuk pesan waktu nyata
+- `/notifications` untuk dorongan notifikasi, satu room per pengguna
 
-## 🐛 Troubleshooting
+Whitelist origin keduanya berasal dari `FRONTEND_URL` lewat
+`src/common/cors.util.ts`, sumber yang sama dengan CORS REST. Nilainya dihitung
+sekali saat proses dimulai, jadi perubahan `FRONTEND_URL` butuh restart.
 
-### "RESEND_API_KEY belum di-set" warning di console
-Itu hanya warning. Aplikasi tetap jalan, tapi email tidak benar-benar dikirim
-— di-log ke console (cocok untuk dev tanpa kredensial Resend).
+## Uji
 
-### Email tidak masuk inbox
-1. Cek domain Resend status = "Verified" (hijau)
-2. Cek SPF/DKIM record di DNS provider
-3. Cek folder spam
-4. Cek log backend: `📧 Email terkirim ke ...` muncul?
-5. Cek Resend Dashboard → Emails → cari log delivery
-
-### TypeScript compile error setelah update schema
 ```bash
-npx prisma generate
-npm run build
+npm test
 ```
 
-### Migration gagal di Supabase
-Jalankan per-section. Section yang sudah dijalankan tidak akan duplicate
-karena pakai `IF NOT EXISTS` / `ON CONFLICT DO NOTHING`.
+14 suite, 42 uji lolos, 2 dilewati.
 
----
+## Penyebaran
 
-## 🔐 Security Checklist Sebelum Production
+Sudah disiapkan untuk Railway: aplikasi mendengarkan di `0.0.0.0` dan memakai
+`process.env.PORT`, jadi `PORT` tidak perlu diisi sendiri.
 
-- [ ] **Rotate JWT_SECRET & JWT_REFRESH_SECRET** (kalau .env pernah di-commit)
-- [ ] Reset `SUPABASE_SERVICE_ROLE_KEY` di Supabase
-- [ ] Reset password DB
-- [ ] `NODE_ENV=production` di Railway/host
-- [ ] `MIDTRANS_IS_PRODUCTION=true` (setelah merchant verified)
-- [ ] CORS whitelist di `FRONTEND_URL` hanya production frontend URL
-- [ ] Domain Resend benar-benar verified
-- [ ] Google OAuth Authorized origins/redirect URIs include production URL
+| Kolom | Nilai |
+|---|---|
+| Build command | `npm ci && npm run build` |
+| Start command | `npm run start:prod` |
+| Healthcheck path | `/api/v1/settings/public` |
+
+Seluruh variabel di `.env.example` perlu diisi, dengan `NODE_ENV=production`.
+`DATABASE_URL` harus memakai Session pooler Supabase: koneksi langsung hanya
+menyediakan alamat IPv6 dan tidak terjangkau dari Railway, dan gejalanya muncul
+sebagai 500 di setiap endpoint yang membaca data, bukan sebagai kegagalan build.
+
+Di dashboard Xendit, daftarkan **dua** webhook, bukan satu:
+
+| Kejadian | URL |
+|---|---|
+| Invoice | `https://DOMAIN/api/v1/payments/webhook/xendit` |
+| Disbursement | `https://DOMAIN/api/v1/withdrawals/webhook/xendit` |
+
+Kalau hanya yang pertama didaftarkan, pembayaran berjalan normal tetapi
+penarikan dana berhenti di status `processing` selamanya.
+
+## Keamanan
+
+`SUPABASE_SERVICE_ROLE_KEY` melewati seluruh aturan row level security, dan
+`JWT_SECRET` bisa dipakai menerbitkan token atas nama pengguna mana pun termasuk
+admin. Keduanya hanya boleh hidup di variabel lingkungan server.
+
+Berkas `.env` dan seluruh turunannya diabaikan `.gitignore`, termasuk salinan
+cadangan. Hanya `.env.example` yang boleh ikut ke repositori, dan isinya nama
+variabel tanpa nilai.
+
+Mengganti `JWT_SECRET` mencabut seluruh sesi yang sedang berjalan.
