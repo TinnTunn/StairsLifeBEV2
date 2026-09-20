@@ -59,7 +59,8 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
-  logger.log(`🚀 StairsLife API running on: ${await app.getUrl()}/api/v1`);
-  logger.log(`🔌 WebSocket ready on: ws://localhost:${port}/chat`);
+  logger.log(`StairsLife API siap di ${await app.getUrl()}/api/v1`);
+  logger.log(`Node ${process.version}, WebSocket bawaan: ${typeof WebSocket !== 'undefined'}`);
+  logger.log(`Namespace WebSocket: /chat dan /notifications`);
 }
 void bootstrap();
