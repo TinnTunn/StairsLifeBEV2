@@ -50,7 +50,7 @@ async function bootstrap() {
       }
 
       logger.warn(`CORS rejected origin: ${origin}`);
-      return callback(new Error(`Origin tidak diizinkan: ${origin}`), false);
+      return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
@@ -60,7 +60,9 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
   logger.log(`StairsLife API siap di ${await app.getUrl()}/api/v1`);
-  logger.log(`Node ${process.version}, WebSocket bawaan: ${typeof WebSocket !== 'undefined'}`);
+  logger.log(
+    `Node ${process.version}, WebSocket bawaan: ${typeof WebSocket !== 'undefined'}`,
+  );
   logger.log(`Namespace WebSocket: /chat dan /notifications`);
 }
 void bootstrap();
